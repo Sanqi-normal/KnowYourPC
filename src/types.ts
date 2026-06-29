@@ -60,6 +60,40 @@ export interface ExtensionStat {
   fileCount: number;
 }
 
+export interface ChildNode {
+  id: number;
+  name: string;
+  isDir: boolean;
+  size: number;
+  allocated: number;
+  totalSize: number;
+  totalAllocated: number;
+  childCount: number;
+  fileCount: number;
+  dirCount: number;
+  extension: string | null;
+}
+
+export interface SearchResult {
+  id: number;
+  name: string;
+  path: string;
+  isDir: boolean;
+  size: number;
+  allocated: number;
+  totalSize: number;
+  totalAllocated: number;
+  extension: string | null;
+}
+
+export interface TreemapItem {
+  id: number;
+  size: number;
+  name: string;
+  isDir: boolean;
+  extension: string | null;
+}
+
 export type ExtCategory = "document" | "image" | "video" | "audio" | "archive" | "code" | "executable" | "other";
 
 export const EXTENSION_CATEGORIES: Record<string, ExtCategory> = {

@@ -62,6 +62,11 @@ impl TreeNode {
 }
 
 pub fn finalize_tree(mut nodes: Vec<TreeNode>) -> Vec<NodeDto> {
+    finalize_tree_in_place(&mut nodes);
+    tree_to_node_dtos(nodes)
+}
+
+pub fn finalize_tree_in_place(nodes: &mut Vec<TreeNode>) {
     if nodes.is_empty() {
         nodes.push(TreeNode::root("root"));
     }
@@ -74,7 +79,7 @@ pub fn finalize_tree(mut nodes: Vec<TreeNode>) -> Vec<NodeDto> {
             .retain(|child| (*child as usize) < len && *child != index as u32);
     }
 
-    aggregate_from_root(&mut nodes);
+    aggregate_from_root(nodes);
 
     let totals: Vec<u64> = nodes.iter().map(|node| node.total_allocated).collect();
     let names: Vec<String> = nodes
@@ -82,17 +87,37 @@ pub fn finalize_tree(mut nodes: Vec<TreeNode>) -> Vec<NodeDto> {
         .map(|node| node.name.to_ascii_lowercase())
         .collect();
 
-    for node in &mut nodes {
+    for node in nodes.iter_mut() {
         node.children.sort_by(|a, b| {
             let ai = *a as usize;
             let bi = *b as usize;
-
             totals[bi]
                 .cmp(&totals[ai])
                 .then_with(|| names[ai].cmp(&names[bi]))
         });
     }
+}
 
+pub fn node_dtos_to_tree_nodes(dtos: Vec<NodeDto>) -> Vec<TreeNode> {
+    dtos.into_iter()
+        .map(|n| TreeNode {
+            id: n.id,
+            parent: n.parent,
+            name: n.name,
+            is_dir: n.is_dir,
+            size: n.size,
+            allocated: n.allocated,
+            total_size: n.total_size,
+            total_allocated: n.total_allocated,
+            children: n.children,
+            file_count: n.file_count,
+            dir_count: n.dir_count,
+            extension: n.extension,
+        })
+        .collect()
+}
+
+pub fn tree_to_node_dtos(nodes: Vec<TreeNode>) -> Vec<NodeDto> {
     nodes
         .into_iter()
         .map(|node| NodeDto {

@@ -2,8 +2,6 @@ mod boot;
 mod record;
 mod runs;
 
-use std::collections::HashMap;
-
 use anyhow::{bail, Context, Result};
 use rayon::prelude::*;
 use tauri::AppHandle;
@@ -34,7 +32,7 @@ use windows_sys::Win32::Storage::FileSystem::{
 };
 
 #[cfg(windows)]
-const MFT_READ_CHUNK_BYTES: u64 = 16 * 1024 * 1024;
+use memmap2::Mmap;
 
 #[cfg(windows)]
 pub fn scan_volume(app: &AppHandle, root: &str) -> Result<ScanResult> {
@@ -129,26 +127,112 @@ fn enumerate_mft_records(
     mft: &MftStream,
     record_count: u64,
 ) -> Result<Vec<ParsedRecord>> {
-    let mut parsed = Vec::with_capacity(record_count.min(1_000_000) as usize);
+    let mem_mapped = unsafe { Mmap::map(volume) };
+    match mem_mapped {
+        Ok(mmap) => enumerate_via_mmap(app, &mmap, boot, mft, record_count),
+        Err(_) => enumerate_via_chunks(app, volume, boot, mft, record_count),
+    }
+}
 
+#[cfg(windows)]
+fn enumerate_via_mmap(
+    app: &AppHandle,
+    volume_mmap: &Mmap,
+    boot: &boot::NtfsBoot,
+    mft: &MftStream,
+    record_count: u64,
+) -> Result<Vec<ParsedRecord>> {
+    let mut parsed = Vec::with_capacity(record_count.min(1_000_000) as usize);
     let mut records_seen = 0u64;
     let mut stream_bytes_read = 0u64;
-    let mut pending = Vec::<u8>::new();
     let mut last_emit = Instant::now();
+    let rec_size = boot.file_record_size;
+    let bps = boot.bytes_per_sector as usize;
 
     for run in &mft.runs {
         let run_bytes = run.clusters.saturating_mul(boot.cluster_size);
         let remaining_mft_bytes = mft.data_size.saturating_sub(stream_bytes_read);
-
         if remaining_mft_bytes == 0 {
             break;
         }
-
         let bytes_to_process = run_bytes.min(remaining_mft_bytes);
 
         if run.lcn < 0 {
-            let skipped_records = bytes_to_process / boot.file_record_size as u64;
-            records_seen = records_seen.saturating_add(skipped_records);
+            records_seen = records_seen.saturating_add(bytes_to_process / rec_size as u64);
+            stream_bytes_read = stream_bytes_read.saturating_add(bytes_to_process);
+            continue;
+        }
+
+        let disk_offset = (run.lcn as u64)
+            .checked_mul(boot.cluster_size)
+            .context("MFT data run disk offset overflow")? as usize;
+        let end_offset = (disk_offset + (bytes_to_process as usize)).min(volume_mmap.len());
+
+        let region = &volume_mmap[disk_offset..end_offset];
+        let region_records = region.len() / rec_size;
+        let data = &region[..region_records * rec_size];
+
+        let parsed_chunk: Vec<Option<ParsedRecord>> = data
+            .par_chunks(rec_size)
+            .enumerate()
+            .map(|(i, raw)| {
+                let mut buf = vec![0u8; raw.len()];
+                buf.copy_from_slice(raw);
+                record::parse_user_file_record(records_seen + i as u64, &mut buf, bps)
+            })
+            .collect();
+
+        records_seen += region_records as u64;
+        stream_bytes_read = stream_bytes_read.saturating_add(bytes_to_process);
+
+        for rec in parsed_chunk {
+            if let Some(record) = rec {
+                parsed.push(record);
+            }
+        }
+
+        if last_emit.elapsed().as_millis() > 220 {
+            emit_progress(
+                app,
+                "ntfs.mft",
+                records_seen,
+                Some(record_count),
+                format!("正在映射 MFT: {} / {} records", records_seen, record_count),
+            );
+            last_emit = Instant::now();
+        }
+    }
+
+    Ok(parsed)
+}
+
+#[cfg(windows)]
+fn enumerate_via_chunks(
+    app: &AppHandle,
+    volume: &File,
+    boot: &boot::NtfsBoot,
+    mft: &MftStream,
+    record_count: u64,
+) -> Result<Vec<ParsedRecord>> {
+    let mut parsed = Vec::with_capacity(record_count.min(1_000_000) as usize);
+    let mut records_seen = 0u64;
+    let mut stream_bytes_read = 0u64;
+    let mut pending = Vec::<u8>::new();
+    let mut last_emit = Instant::now();
+    let rec_size = boot.file_record_size;
+    let bps = boot.bytes_per_sector as usize;
+    const CHUNK_BYTES: u64 = 64 * 1024 * 1024;
+
+    for run in &mft.runs {
+        let run_bytes = run.clusters.saturating_mul(boot.cluster_size);
+        let remaining_mft_bytes = mft.data_size.saturating_sub(stream_bytes_read);
+        if remaining_mft_bytes == 0 {
+            break;
+        }
+        let bytes_to_process = run_bytes.min(remaining_mft_bytes);
+
+        if run.lcn < 0 {
+            records_seen = records_seen.saturating_add(bytes_to_process / rec_size as u64);
             stream_bytes_read = stream_bytes_read.saturating_add(bytes_to_process);
             pending.clear();
             continue;
@@ -157,46 +241,34 @@ fn enumerate_mft_records(
         let disk_base = (run.lcn as u64)
             .checked_mul(boot.cluster_size)
             .context("MFT data run disk offset overflow")?;
-
         let mut run_offset = 0u64;
 
         while run_offset < bytes_to_process && records_seen < record_count {
-            let read_len = (bytes_to_process - run_offset).min(MFT_READ_CHUNK_BYTES) as usize;
-
+            let read_len = (bytes_to_process - run_offset).min(CHUNK_BYTES) as usize;
             let prefix_len = pending.len();
             let mut buf = vec![0u8; prefix_len + read_len];
-
             if prefix_len > 0 {
                 buf[..prefix_len].copy_from_slice(&pending);
             }
-
             read_exact_at(
                 volume,
                 disk_base + run_offset,
                 &mut buf[prefix_len..prefix_len + read_len],
             )?;
-
             run_offset += read_len as u64;
             stream_bytes_read = stream_bytes_read.saturating_add(read_len as u64);
 
-            let complete_len = (buf.len() / boot.file_record_size) * boot.file_record_size;
-            let bps = boot.bytes_per_sector as usize;
-            let rec_size = boot.file_record_size;
+            let complete_len = (buf.len() / rec_size) * rec_size;
 
             let parsed_chunk: Vec<Option<ParsedRecord>> = buf[..complete_len]
                 .par_chunks_mut(rec_size)
                 .enumerate()
                 .map(|(i, record_buf)| {
-                    record::parse_user_file_record(
-                        records_seen + i as u64,
-                        record_buf,
-                        bps,
-                    )
+                    record::parse_user_file_record(records_seen + i as u64, record_buf, bps)
                 })
                 .collect();
 
             records_seen += parsed_chunk.len() as u64;
-
             for rec in parsed_chunk {
                 if let Some(record) = rec {
                     parsed.push(record);
@@ -212,10 +284,7 @@ fn enumerate_mft_records(
                     "ntfs.mft",
                     records_seen,
                     Some(record_count),
-                    format!(
-                        "正在流式读取 MFT: {} / {} records",
-                        records_seen, record_count
-                    ),
+                    format!("正在流式读取 MFT: {} / {} records", records_seen, record_count),
                 );
                 last_emit = Instant::now();
             }
@@ -239,11 +308,16 @@ fn build_tree_from_records(app: &AppHandle, root: &str, records: Vec<ParsedRecor
     let mut nodes = Vec::<TreeNode>::with_capacity(filtered.len() + 1);
     nodes.push(TreeNode::root(root.to_string()));
 
-    let mut frn_to_node_id = HashMap::<u64, u32>::with_capacity(filtered.len());
+    let max_frn = filtered
+        .iter()
+        .map(|r| r.record_number)
+        .max()
+        .unwrap_or(0) as usize;
+    let mut frn_to_node_id = vec![u32::MAX; max_frn + 1];
 
     for record in &filtered {
         let id = nodes.len() as u32;
-        frn_to_node_id.insert(record.record_number, id);
+        frn_to_node_id[record.record_number as usize] = id;
 
         nodes.push(TreeNode::new(
             id,
@@ -261,10 +335,13 @@ fn build_tree_from_records(app: &AppHandle, root: &str, records: Vec<ParsedRecor
         let mut parent_id = if record.parent_record == 5 {
             0
         } else {
-            frn_to_node_id
-                .get(&record.parent_record)
-                .copied()
-                .unwrap_or(0)
+            let idx = record.parent_record as usize;
+            if idx < frn_to_node_id.len() {
+                let mapped = frn_to_node_id[idx];
+                if mapped != u32::MAX { mapped } else { 0 }
+            } else {
+                0
+            }
         };
 
         if parent_id == id {

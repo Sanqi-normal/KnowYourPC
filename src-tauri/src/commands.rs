@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::error::AppResult;
-use crate::models::{ExtensionStat, ScanOptions, ScanResult, VolumeInfo};
+use crate::models::{ChildNode, ExtensionStat, ScanOptions, ScanResult, SearchResult, TreemapItem, VolumeInfo};
 use crate::AppState;
 use tauri::State;
 
@@ -21,15 +21,249 @@ pub async fn scan(
         .map_err(|error| format!("扫描线程失败: {error}"))?
         .map_err(|error| error.to_string())?;
 
+    let tree = crate::scanner::tree::node_dtos_to_tree_nodes(result.nodes.clone());
+    *state.tree.lock().unwrap() = Some(tree);
+    *state.root_path.lock().unwrap() = Some(result.root.clone());
     *state.scan.lock().unwrap() = Some(result.clone());
+
     Ok(result)
 }
 
 #[tauri::command]
-pub fn open_in_explorer(path: String) -> AppResult<()> {
-    let parent_path = std::path::Path::new(&path)
+pub fn get_children(
+    parent_id: u32,
+    state: State<'_, AppState>,
+) -> AppResult<Vec<ChildNode>> {
+    let guard = state.tree.lock().unwrap();
+    let nodes = guard
+        .as_ref()
+        .ok_or_else(|| crate::error::AppError::Internal("尚未扫描".into()))?;
+
+    let parent = nodes.get(parent_id as usize)
+        .ok_or_else(|| crate::error::AppError::Internal("节点不存在".into()))?;
+
+    let children: Vec<ChildNode> = parent
+        .children
+        .iter()
+        .filter_map(|cid| {
+            let child = nodes.get(*cid as usize)?;
+            Some(ChildNode {
+                id: child.id,
+                name: child.name.clone(),
+                is_dir: child.is_dir,
+                size: child.size,
+                allocated: child.allocated,
+                total_size: child.total_size,
+                total_allocated: child.total_allocated,
+                child_count: child.children.len() as u32,
+                file_count: child.file_count,
+                dir_count: child.dir_count,
+                extension: child.extension.clone(),
+            })
+        })
+        .collect();
+
+    Ok(children)
+}
+
+#[tauri::command]
+pub fn get_node_path(
+    node_id: u32,
+    state: State<'_, AppState>,
+) -> AppResult<String> {
+    let guard = state.tree.lock().unwrap();
+    let nodes = guard
+        .as_ref()
+        .ok_or_else(|| crate::error::AppError::Internal("尚未扫描".into()))?;
+    let root = state.root_path.lock().unwrap();
+    let root_str = root.as_deref().unwrap_or("");
+
+    let mut parts: Vec<&str> = Vec::new();
+    let mut current = Some(node_id);
+
+    while let Some(id) = current {
+        if let Some(node) = nodes.get(id as usize) {
+            parts.push(&node.name);
+            current = node.parent;
+        } else {
+            break;
+        }
+    }
+
+    parts.reverse();
+    if parts.is_empty() {
+        return Ok(root_str.to_string());
+    }
+
+    let mut path = parts[0].to_string();
+    for part in &parts[1..] {
+        if path.ends_with('\\') || path.ends_with('/') {
+            path.push_str(part);
+        } else {
+            path.push('\\');
+            path.push_str(part);
+        }
+    }
+
+    Ok(path)
+}
+
+#[tauri::command]
+pub fn get_treemap_data(
+    root_id: u32,
+    max_items: u32,
+    state: State<'_, AppState>,
+) -> AppResult<Vec<TreemapItem>> {
+    let guard = state.tree.lock().unwrap();
+    let nodes = guard
+        .as_ref()
+        .ok_or_else(|| crate::error::AppError::Internal("尚未扫描".into()))?;
+
+    let root = nodes.get(root_id as usize)
+        .ok_or_else(|| crate::error::AppError::Internal("根节点不存在".into()))?;
+
+    let mut items: Vec<TreemapItem> = Vec::new();
+    let mut stack: Vec<u32> = root.children.clone();
+
+    while let Some(id) = stack.pop() {
+        if items.len() >= max_items as usize {
+            break;
+        }
+        if let Some(node) = nodes.get(id as usize) {
+            if node.total_allocated <= 0 {
+                continue;
+            }
+            if node.is_dir && !node.children.is_empty() {
+                stack.extend(node.children.iter().rev().copied());
+            } else {
+                items.push(TreemapItem {
+                    id: node.id,
+                    size: node.total_allocated,
+                    name: node.name.clone(),
+                    is_dir: node.is_dir,
+                    extension: node.extension.clone(),
+                });
+            }
+        }
+    }
+
+    items.sort_by(|a, b| b.size.cmp(&a.size));
+    if items.len() > max_items as usize {
+        items.truncate(max_items as usize);
+    }
+
+    Ok(items)
+}
+
+#[tauri::command]
+pub fn search_files(
+    query: String,
+    max_results: u32,
+    state: State<'_, AppState>,
+) -> AppResult<Vec<SearchResult>> {
+    let guard = state.tree.lock().unwrap();
+    let nodes = guard
+        .as_ref()
+        .ok_or_else(|| crate::error::AppError::Internal("尚未扫描".into()))?;
+    let root = state.root_path.lock().unwrap();
+    let root_str = root.as_deref().unwrap_or("");
+
+    if query.is_empty() || nodes.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let query_lower = query.to_ascii_lowercase();
+    let max = max_results as usize;
+
+    let mut results: Vec<SearchResult> = Vec::new();
+    let mut path_cache: HashMap<u32, String> = HashMap::new();
+    path_cache.insert(0, root_str.to_string());
+
+    for node in nodes.iter().skip(1) {
+        if results.len() >= max {
+            break;
+        }
+
+        if !node.name.to_ascii_lowercase().contains(&query_lower) {
+            continue;
+        }
+
+        let path = if let Some(cached) = path_cache.get(&node.id) {
+            cached.clone()
+        } else {
+            let mut parts: Vec<&str> = Vec::new();
+            let mut current = node.parent;
+            while let Some(pid) = current {
+                if let Some(pnode) = nodes.get(pid as usize) {
+                    parts.push(&pnode.name);
+                    current = pnode.parent;
+                } else {
+                    break;
+                }
+            }
+            parts.reverse();
+            let mut p = root_str.to_string();
+            for part in parts {
+                if p.ends_with('\\') || p.ends_with('/') {
+                    p.push_str(part);
+                } else {
+                    p.push('\\');
+                    p.push_str(part);
+                }
+            }
+            if !p.ends_with('\\') {
+                p.push('\\');
+            }
+            p.push_str(&node.name);
+            p
+        };
+
+        results.push(SearchResult {
+            id: node.id,
+            name: node.name.clone(),
+            path,
+            is_dir: node.is_dir,
+            size: node.size,
+            allocated: node.allocated,
+            total_size: node.total_size,
+            total_allocated: node.total_allocated,
+            extension: node.extension.clone(),
+        });
+    }
+
+    results.sort_by(|a, b| b.total_allocated.cmp(&a.total_allocated));
+    if results.len() > max {
+        results.truncate(max);
+    }
+
+    Ok(results)
+}
+
+#[tauri::command]
+pub fn open_in_explorer(
+    path: String,
+    state: State<'_, AppState>,
+) -> AppResult<()> {
+    let resolved = std::fs::canonicalize(&path)
+        .map_err(|_| crate::error::AppError::Win("路径无效".into()))?;
+
+    let guard = state.scan.lock().unwrap();
+    let root = guard
+        .as_ref()
+        .map(|s| &s.root)
+        .ok_or_else(|| crate::error::AppError::Internal("尚未扫描".into()))?;
+
+    let root_path = std::path::Path::new(root);
+    if !resolved.starts_with(root_path) {
+        return Err(crate::error::AppError::Win(
+            "路径不在当前扫描卷范围内".into(),
+        ));
+    }
+    drop(guard);
+
+    let parent_path = resolved
         .parent()
-        .unwrap_or(std::path::Path::new(&path));
+        .unwrap_or(&resolved);
     tauri_plugin_opener::open_path(parent_path, None::<&str>)
         .map_err(|e| crate::error::AppError::Win(e.to_string()))?;
     Ok(())
@@ -48,14 +282,14 @@ pub fn restart_as_admin() -> Result<(), String> {
 
 #[tauri::command]
 pub fn get_extension_stats(state: State<'_, AppState>) -> AppResult<Vec<ExtensionStat>> {
-    let guard = state.scan.lock().unwrap();
-    let scan = guard
+    let guard = state.tree.lock().unwrap();
+    let nodes = guard
         .as_ref()
         .ok_or_else(|| crate::error::AppError::Internal("尚未扫描".into()))?;
 
     let mut ext_map: HashMap<String, ExtensionStat> = HashMap::new();
 
-    for node in &scan.nodes {
+    for node in nodes {
         if node.is_dir {
             continue;
         }

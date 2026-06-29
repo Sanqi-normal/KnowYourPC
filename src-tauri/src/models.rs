@@ -57,6 +57,46 @@ pub struct NodeDto {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ChildNode {
+    pub id: u32,
+    pub name: String,
+    pub is_dir: bool,
+    pub size: u64,
+    pub allocated: u64,
+    pub total_size: u64,
+    pub total_allocated: u64,
+    pub child_count: u32,
+    pub file_count: u64,
+    pub dir_count: u64,
+    pub extension: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchResult {
+    pub id: u32,
+    pub name: String,
+    pub path: String,
+    pub is_dir: bool,
+    pub size: u64,
+    pub allocated: u64,
+    pub total_size: u64,
+    pub total_allocated: u64,
+    pub extension: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TreemapItem {
+    pub id: u32,
+    pub size: u64,
+    pub name: String,
+    pub is_dir: bool,
+    pub extension: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ScanResult {
     pub root: String,
     pub scanner: String,

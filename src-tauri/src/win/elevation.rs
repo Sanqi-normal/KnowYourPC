@@ -46,7 +46,7 @@ pub fn restart_elevated() -> Result<(), String> {
         .chain(std::iter::once(0))
         .collect();
 
-    unsafe {
+    let result = unsafe {
         ShellExecuteW(
             std::ptr::null_mut(),
             verb.as_ptr(),
@@ -54,7 +54,15 @@ pub fn restart_elevated() -> Result<(), String> {
             std::ptr::null(),
             std::ptr::null(),
             5,
-        );
+        )
+    };
+
+    let code = result as isize;
+    if code <= 32 {
+        if code == 1223 {
+            return Err("用户取消了提权请求".into());
+        }
+        return Err(format!("提权失败 (错误码: {})", code));
     }
 
     Ok(())

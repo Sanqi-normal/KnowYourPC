@@ -9,6 +9,8 @@ import type {
   ScanResult,
   VolumeInfo,
   ExtensionStat,
+  SearchResult,
+  TreemapItem,
 } from "./types";
 import {
   formatBytes,
@@ -73,8 +75,13 @@ const extPanel = qs<HTMLElement>("#extPanel");
 const adminBanner = qs<HTMLDivElement>("#adminBanner");
 const restartAdminBtn = qs<HTMLButtonElement>("#restartAdminBtn");
 
+const searchWrap = qs<HTMLDivElement>("#searchWrap");
+const searchInput = qs<HTMLInputElement>("#searchInput");
+const searchResults = qs<HTMLDivElement>("#searchResults");
+
 const treemapTooltip = qs<HTMLDivElement>("#treemapTooltip");
 let contextMenuId: number | null = null;
+let searchTimeout: ReturnType<typeof setTimeout> | null = null;
 
 function updateNodesMap() {
   nodesMap.clear();
@@ -225,6 +232,26 @@ function wireEvents() {
     hideContextMenu();
   });
 
+  searchInput.addEventListener("input", () => {
+    if (searchTimeout) clearTimeout(searchTimeout);
+    const q = searchInput.value.trim();
+    if (q.length < 2) {
+      searchResults.classList.add("hidden");
+      return;
+    }
+    searchTimeout = setTimeout(() => doSearch(q), 200);
+  });
+
+  searchInput.addEventListener("blur", () => {
+    setTimeout(() => searchResults.classList.add("hidden"), 200);
+  });
+
+  searchInput.addEventListener("focus", () => {
+    if (searchInput.value.trim().length >= 2) {
+      searchResults.classList.remove("hidden");
+    }
+  });
+
   restartAdminBtn.addEventListener("click", async () => {
     restartAdminBtn.disabled = true;
     restartAdminBtn.textContent = "正在重启...";
@@ -300,10 +327,65 @@ function hideContextMenu() {
   contextMenuId = null;
 }
 
+async function doSearch(query: string) {
+  try {
+    const items = await invoke<SearchResult[]>("search_files", {
+      query,
+      maxResults: 100,
+    });
+    renderSearchResults(items);
+  } catch {
+    searchResults.classList.add("hidden");
+  }
+}
+
+function renderSearchResults(items: SearchResult[]) {
+  searchResults.replaceChildren();
+  if (items.length === 0) {
+    const div = document.createElement("div");
+    div.className = "search-result-item";
+    div.textContent = "未找到匹配项";
+    searchResults.append(div);
+    searchResults.classList.remove("hidden");
+    return;
+  }
+
+  for (const item of items.slice(0, 100)) {
+    const row = document.createElement("div");
+    row.className = "search-result-item";
+    row.innerHTML = `
+      <span class="search-result-icon">${item.isDir ? "\uD83D\uDCC1" : "\uD83D\uDCC4"}</span>
+      <span class="search-result-name">${escapeHtml(item.name)}</span>
+      <span class="search-result-size">${formatBytes(item.totalAllocated)}</span>
+      <span class="search-result-path">${escapeHtml(shortenPath(item.path))}</span>
+    `;
+    row.addEventListener("click", () => {
+      searchResults.classList.add("hidden");
+      searchInput.blur();
+      selectNode(item.id, true, item.isDir);
+    });
+    row.addEventListener("mousedown", (e) => e.preventDefault());
+    searchResults.append(row);
+  }
+
+  searchResults.classList.remove("hidden");
+}
+
+function escapeHtml(text: string): string {
+  const div = document.createElement("div");
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+function shortenPath(path: string): string {
+  if (path.length <= 80) return path;
+  return "..." + path.slice(-77);
+}
+
 async function openInExplorer(nodeId: number) {
   const node = nodes[nodeId];
   if (!node) return;
-  const path = nodePath(nodeId);
+  const path = await nodePath(nodeId);
   try {
     await invoke("open_in_explorer", { path });
   } catch {
@@ -312,7 +394,7 @@ async function openInExplorer(nodeId: number) {
 }
 
 async function copyNodePath(nodeId: number) {
-  const path = nodePath(nodeId);
+  const path = await nodePath(nodeId);
   try {
     await navigator.clipboard.writeText(path);
   } catch {
@@ -391,6 +473,9 @@ async function startScan() {
     renderWarnings();
     selectNode(0, false, true);
     loadExtensionStats();
+    searchWrap.classList.remove("hidden");
+    searchInput.value = "";
+    searchResults.classList.add("hidden");
     progressFill.style.width = "100%";
     setStatus(`扫描完成 (${formatDuration(result.elapsedMs)})`);
   } catch (error) {
@@ -569,7 +654,7 @@ function toggleExpanded(id: number) {
   renderRows();
 }
 
-function selectNode(id: number, scrollIntoView: boolean, expandSelf: boolean) {
+async function selectNode(id: number, scrollIntoView: boolean, expandSelf: boolean) {
   if (!nodes[id]) return;
   selectedId = id;
   ensureAncestorsExpanded(id);
@@ -577,8 +662,8 @@ function selectNode(id: number, scrollIntoView: boolean, expandSelf: boolean) {
   rebuildVisibleRows();
   if (scrollIntoView) scrollSelectedIntoView();
   renderRows();
-  renderTreemap();
-  renderSelectedPath();
+  await renderTreemap();
+  await renderSelectedPath();
 }
 
 function ensureAncestorsExpanded(id: number) {
@@ -601,20 +686,39 @@ function scrollSelectedIntoView() {
   }
 }
 
-function renderTreemap() {
-  treemapRects = drawTreemap(treemapCanvas, nodes, selectedId);
+async function renderTreemap() {
+  if (!nodes[selectedId]) return;
+  try {
+    const items = await invoke<TreemapItem[]>("get_treemap_data", {
+      rootId: selectedId,
+      maxItems: 3000,
+    });
+    treemapRects = drawTreemap(treemapCanvas, nodes, selectedId, items);
+  } catch {
+    treemapRects = drawTreemap(treemapCanvas, nodes, selectedId);
+  }
 }
 
-function renderSelectedPath() {
+async function renderSelectedPath() {
   if (!nodes[selectedId]) {
     selectedPath.textContent = "未选择";
     return;
   }
   const node = nodes[selectedId];
-  selectedPath.textContent = `${nodePath(selectedId)} ${formatBytes(node.totalAllocated)}`;
+  const path = await nodePath(selectedId);
+  selectedPath.textContent = `${path} ${formatBytes(node.totalAllocated)}`;
 }
 
-function nodePath(id: number): string {
+async function nodePath(id: number): Promise<string> {
+  if (!nodes[id]) return "";
+  try {
+    return await invoke<string>("get_node_path", { nodeId: id });
+  } catch {
+    return localNodePath(id);
+  }
+}
+
+function localNodePath(id: number): string {
   const parts: string[] = [];
   let current: number | null | undefined = id;
   while (current != null && nodes[current]) {

@@ -1,4 +1,5 @@
-import type { NodeDto } from "./types";
+import type { NodeDto, TreemapItem } from "./types";
+import { extCategory, CATEGORY_COLORS } from "./types";
 import { formatBytes } from "./format";
 
 export interface TreemapRect {
@@ -29,7 +30,8 @@ const MAX_VISIBLE = 3000;
 export function drawTreemap(
   canvas: HTMLCanvasElement,
   nodes: NodeDto[],
-  rootId: number
+  rootId: number,
+  backendItems?: TreemapItem[],
 ): TreemapRect[] {
   const width = Math.max(1, canvas.clientWidth);
   const height = Math.max(1, canvas.clientHeight);
@@ -60,19 +62,41 @@ export function drawTreemap(
     return [];
   }
 
-  const items = collectItems(nodes, rootId);
-  if (items.length === 0) {
-    drawEmpty(ctx, width, height, "无可视化数据");
-    return [];
-  }
-
-  items.sort((a, b) => b.size - a.size);
-
   let layoutItems: LayoutItem[];
-  if (items.length > MAX_VISIBLE) {
-    layoutItems = items.slice(0, MAX_VISIBLE);
+
+  if (backendItems && backendItems.length > 0) {
+    layoutItems = backendItems.slice(0, MAX_VISIBLE).map((item) => ({
+      id: item.id,
+      size: item.size,
+      node: nodes[item.id] || {
+        id: item.id,
+        parent: null,
+        name: item.name,
+        isDir: item.isDir,
+        size: 0,
+        allocated: 0,
+        totalSize: item.size,
+        totalAllocated: item.size,
+        childCount: 0,
+        children: [],
+        fileCount: item.isDir ? 0 : 1,
+        dirCount: item.isDir ? 1 : 0,
+        extension: item.extension,
+      },
+    }));
   } else {
-    layoutItems = items;
+    const items = collectItems(nodes, rootId);
+    if (items.length === 0) {
+      drawEmpty(ctx, width, height, "无可视化数据");
+      return [];
+    }
+    items.sort((a, b) => b.size - a.size);
+
+    if (items.length > MAX_VISIBLE) {
+      layoutItems = items.slice(0, MAX_VISIBLE);
+    } else {
+      layoutItems = items;
+    }
   }
 
   if (layoutItems.length === 0) {
@@ -216,20 +240,19 @@ function worstRatio(
   );
 }
 
+function categoryColorFor(ext: string | null, isDir: boolean): string {
+  if (isDir) {
+    return CATEGORY_COLORS.other;
+  }
+  const cat = extCategory(ext);
+  return CATEGORY_COLORS[cat];
+}
+
 function drawRect(ctx: CanvasRenderingContext2D, rect: TreemapRect) {
   if (rect.w <= 0 || rect.h <= 0) return;
 
   const node = rect.node;
-  let color: string;
-
-  if (node.isDir) {
-    const hue = hashHue(node.name);
-    color = `hsl(${hue}, 35%, 35%)`;
-  } else {
-    const ext = node.extension || "";
-    const hue = hashHue(ext || node.name);
-    color = `hsl(${hue}, 55%, 50%)`;
-  }
+  const color = categoryColorFor(node.extension, node.isDir);
 
   ctx.fillStyle = color;
   ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
@@ -308,15 +331,6 @@ function clipText(ctx: CanvasRenderingContext2D, text: string, maxW: number): st
     t = t.slice(0, -1);
   }
   return t + "...";
-}
-
-function hashHue(text: string): number {
-  let hash = 2166136261;
-  for (let i = 0; i < text.length; i += 1) {
-    hash ^= text.charCodeAt(i);
-    hash = Math.imul(hash, 16777619);
-  }
-  return Math.abs(hash) % 360;
 }
 
 export function buildNodePath(id: number, nodeMap: Map<number, NodeDto>, rootId: number): string {

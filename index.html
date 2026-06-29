@@ -29,6 +29,11 @@
         <button id="refreshVolumesButton" class="secondary-button">刷新卷</button>
         <button id="scanButton" class="primary-button">开始扫描</button>
 
+        <div id="searchWrap" class="search-wrap hidden">
+          <input id="searchInput" class="search-input" type="text" placeholder="搜索文件/文件夹..." />
+          <div id="searchResults" class="search-results hidden"></div>
+        </div>
+
         <div id="adminBanner" class="admin-banner hidden">
           <span>⚠ 未以管理员身份运行，MFT 模式可能不可用</span>
           <button id="restartAdminBtn" class="admin-restart-btn">以管理员身份重启</button>
