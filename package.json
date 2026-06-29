@@ -1,0 +1,21 @@
+{
+  "name": "fast-disk-analyzer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "dev:frontend": "vite --host 127.0.0.1",
+    "build:frontend": "tsc --noEmit && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.0.0"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0",
+    "typescript": "^5.6.3",
+    "vite": "^6.0.0"
+  }
+}

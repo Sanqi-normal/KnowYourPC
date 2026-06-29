@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Fast Disk Analyzer</title>
+  </head>
+  <body>
+    <div id="app">
+      <header class="toolbar">
+        <div class="brand">
+          <div class="brand-title">Fast Disk Analyzer</div>
+          <div class="brand-subtitle">NTFS MFT accelerated scanner</div>
+        </div>
+
+        <label class="toolbar-field">
+          <span>卷</span>
+          <select id="volumeSelect"></select>
+        </label>
+
+        <label class="toolbar-field">
+          <span>模式</span>
+          <select id="modeSelect">
+            <option value="auto">Auto</option>
+            <option value="ntfsMft">NTFS MFT</option>
+            <option value="walk">兼容递归</option>
+          </select>
+        </label>
+
+        <button id="refreshVolumesButton" class="secondary-button">刷新卷</button>
+        <button id="scanButton" class="primary-button">开始扫描</button>
+
+        <div class="progress-wrap">
+          <div id="progressBar" class="progress-bar">
+            <div id="progressFill" class="progress-fill"></div>
+          </div>
+          <div id="statusText" class="status-text">准备就绪</div>
+        </div>
+      </header>
+
+      <section class="summary-grid">
+        <div class="summary-card">
+          <div class="summary-label">占用空间</div>
+          <div id="summaryAllocated" class="summary-value">—</div>
+        </div>
+        <div class="summary-card">
+          <div class="summary-label">逻辑大小</div>
+          <div id="summarySize" class="summary-value">—</div>
+        </div>
+        <div class="summary-card">
+          <div class="summary-label">文件</div>
+          <div id="summaryFiles" class="summary-value">—</div>
+        </div>
+        <div class="summary-card">
+          <div class="summary-label">目录</div>
+          <div id="summaryDirs" class="summary-value">—</div>
+        </div>
+        <div class="summary-card wide">
+          <div class="summary-label">扫描器</div>
+          <div id="summaryScanner" class="summary-value">—</div>
+        </div>
+      </section>
+
+      <main class="main-split">
+        <section class="tree-panel">
+          <div class="panel-title-row">
+            <div>
+              <div class="panel-title">文件树</div>
+              <div id="selectedPath" class="selected-path">未选择</div>
+            </div>
+            <button id="upButton" class="secondary-button small">上一级</button>
+          </div>
+
+          <div class="table-header">
+            <div>名称</div>
+            <div class="numeric">占用空间</div>
+            <div class="numeric">逻辑大小</div>
+            <div class="numeric">占比</div>
+            <div class="numeric">项目数</div>
+          </div>
+
+          <div id="treeViewport" class="tree-viewport">
+            <div id="treeSpacer" class="tree-spacer">
+              <div id="treeRows" class="tree-rows"></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="viz-panel">
+          <div class="panel-title-row">
+            <div>
+              <div class="panel-title">Treemap</div>
+              <div id="treemapHint" class="selected-path">
+                点击色块可定位节点
+              </div>
+            </div>
+          </div>
+          <canvas id="treemapCanvas"></canvas>
+        </section>
+      </main>
+
+      <footer id="warnings" class="warnings"></footer>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

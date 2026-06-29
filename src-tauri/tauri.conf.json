@@ -1,0 +1,30 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Fast Disk Analyzer",
+  "version": "0.1.0",
+  "identifier": "com.example.fastdiskanalyzer",
+  "build": {
+    "beforeDevCommand": "npm run dev:frontend",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build:frontend",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Fast Disk Analyzer",
+        "width": 1320,
+        "height": 840,
+        "minWidth": 960,
+        "minHeight": 640
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all"
+  }
+}
