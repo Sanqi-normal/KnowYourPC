@@ -16,15 +16,14 @@ pub async fn scan(
     state: State<'_, AppState>,
     options: ScanOptions,
 ) -> Result<ScanResult, String> {
-    let result = tauri::async_runtime::spawn_blocking(move || crate::scanner::scan(&app, options))
+    let mut result = tauri::async_runtime::spawn_blocking(move || crate::scanner::scan(&app, options))
         .await
         .map_err(|error| format!("扫描线程失败: {error}"))?
         .map_err(|error| error.to_string())?;
 
-    let tree = crate::scanner::tree::node_dtos_to_tree_nodes(result.nodes.clone());
-    *state.tree.lock().unwrap() = Some(tree);
+    let nodes = std::mem::take(&mut result.nodes);
+    *state.tree.lock().unwrap() = Some(nodes);
     *state.root_path.lock().unwrap() = Some(result.root.clone());
-    *state.scan.lock().unwrap() = Some(result.clone());
 
     Ok(result)
 }
@@ -49,6 +48,7 @@ pub fn get_children(
             let child = nodes.get(*cid as usize)?;
             Some(ChildNode {
                 id: child.id,
+                parent: child.parent,
                 name: child.name.clone(),
                 is_dir: child.is_dir,
                 size: child.size,
@@ -247,10 +247,9 @@ pub fn open_in_explorer(
     let resolved = std::fs::canonicalize(&path)
         .map_err(|_| crate::error::AppError::Win("路径无效".into()))?;
 
-    let guard = state.scan.lock().unwrap();
+    let guard = state.root_path.lock().unwrap();
     let root = guard
-        .as_ref()
-        .map(|s| &s.root)
+        .as_deref()
         .ok_or_else(|| crate::error::AppError::Internal("尚未扫描".into()))?;
 
     let root_path = std::path::Path::new(root);

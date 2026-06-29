@@ -364,7 +364,7 @@ fn build_tree_from_records(app: &AppHandle, root: &str, records: Vec<ParsedRecor
         "正在聚合目录大小...",
     );
 
-    let result = finalize_tree(nodes);
+    let result = finalize_tree(app, nodes);
 
     emit_progress(
         app,

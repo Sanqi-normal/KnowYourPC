@@ -62,6 +62,7 @@ export interface ExtensionStat {
 
 export interface ChildNode {
   id: number;
+  parent: number | null;
   name: string;
   isDir: boolean;
   size: number;

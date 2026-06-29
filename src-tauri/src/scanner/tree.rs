@@ -1,4 +1,9 @@
+use std::time::Instant;
+
+use tauri::AppHandle;
+
 use crate::models::NodeDto;
+use crate::scanner::emit_progress;
 
 #[derive(Debug, Clone)]
 pub struct TreeNode {
@@ -61,12 +66,12 @@ impl TreeNode {
     }
 }
 
-pub fn finalize_tree(mut nodes: Vec<TreeNode>) -> Vec<NodeDto> {
-    finalize_tree_in_place(&mut nodes);
+pub fn finalize_tree(app: &AppHandle, mut nodes: Vec<TreeNode>) -> Vec<NodeDto> {
+    finalize_tree_in_place(app, &mut nodes);
     tree_to_node_dtos(nodes)
 }
 
-pub fn finalize_tree_in_place(nodes: &mut Vec<TreeNode>) {
+pub fn finalize_tree_in_place(app: &AppHandle, nodes: &mut Vec<TreeNode>) {
     if nodes.is_empty() {
         nodes.push(TreeNode::root("root"));
     }
@@ -79,7 +84,7 @@ pub fn finalize_tree_in_place(nodes: &mut Vec<TreeNode>) {
             .retain(|child| (*child as usize) < len && *child != index as u32);
     }
 
-    aggregate_from_root(nodes);
+    aggregate_from_root(app, nodes);
 
     let totals: Vec<u64> = nodes.iter().map(|node| node.total_allocated).collect();
     let names: Vec<String> = nodes
@@ -87,7 +92,8 @@ pub fn finalize_tree_in_place(nodes: &mut Vec<TreeNode>) {
         .map(|node| node.name.to_ascii_lowercase())
         .collect();
 
-    for node in nodes.iter_mut() {
+    let count = nodes.len();
+    for (i, node) in nodes.iter_mut().enumerate() {
         node.children.sort_by(|a, b| {
             let ai = *a as usize;
             let bi = *b as usize;
@@ -95,53 +101,25 @@ pub fn finalize_tree_in_place(nodes: &mut Vec<TreeNode>) {
                 .cmp(&totals[ai])
                 .then_with(|| names[ai].cmp(&names[bi]))
         });
+
+        if i % 10000 == 0 && i > 0 {
+            emit_progress(
+                app,
+                "ntfs.aggregate",
+                1 + (i * 100 / count.max(1)) as u64,
+                Some(100),
+                format!("正在排序子节点 {}/{}", i, count),
+            );
+        }
     }
 }
 
-pub fn node_dtos_to_tree_nodes(dtos: Vec<NodeDto>) -> Vec<TreeNode> {
-    dtos.into_iter()
-        .map(|n| TreeNode {
-            id: n.id,
-            parent: n.parent,
-            name: n.name,
-            is_dir: n.is_dir,
-            size: n.size,
-            allocated: n.allocated,
-            total_size: n.total_size,
-            total_allocated: n.total_allocated,
-            children: n.children,
-            file_count: n.file_count,
-            dir_count: n.dir_count,
-            extension: n.extension,
-        })
-        .collect()
-}
-
-pub fn tree_to_node_dtos(nodes: Vec<TreeNode>) -> Vec<NodeDto> {
-    nodes
-        .into_iter()
-        .map(|node| NodeDto {
-            id: node.id,
-            parent: node.parent,
-            name: node.name,
-            is_dir: node.is_dir,
-            size: node.size,
-            allocated: node.allocated,
-            total_size: node.total_size,
-            total_allocated: node.total_allocated,
-            child_count: node.children.len() as u32,
-            children: node.children,
-            file_count: node.file_count,
-            dir_count: node.dir_count,
-            extension: node.extension,
-        })
-        .collect()
-}
-
-fn aggregate_from_root(nodes: &mut [TreeNode]) {
+fn aggregate_from_root(app: &AppHandle, nodes: &mut [TreeNode]) {
     let len = nodes.len();
     let mut state = vec![0u8; len];
     let mut stack = vec![(0u32, false)];
+    let mut processed = 0u64;
+    let mut last_emit = Instant::now();
 
     while let Some((id, exiting)) = stack.pop() {
         let index = id as usize;
@@ -195,7 +173,40 @@ fn aggregate_from_root(nodes: &mut [TreeNode]) {
                 stack.push((child, false));
             }
         }
+
+        processed += 1;
+        if processed % 10000 == 0 && last_emit.elapsed().as_millis() > 100 {
+            emit_progress(
+                app,
+                "ntfs.aggregate",
+                processed,
+                Some(2).filter(|_| processed > 0),
+                format!("正在聚合目录大小... ({} / {} 节点)", processed, len),
+            );
+            last_emit = Instant::now();
+        }
     }
+}
+
+fn tree_to_node_dtos(nodes: Vec<TreeNode>) -> Vec<NodeDto> {
+    nodes
+        .into_iter()
+        .map(|node| NodeDto {
+            id: node.id,
+            parent: node.parent,
+            name: node.name,
+            is_dir: node.is_dir,
+            size: node.size,
+            allocated: node.allocated,
+            total_size: node.total_size,
+            total_allocated: node.total_allocated,
+            child_count: node.children.len() as u32,
+            children: node.children,
+            file_count: node.file_count,
+            dir_count: node.dir_count,
+            extension: node.extension,
+        })
+        .collect()
 }
 
 fn extension_of(name: &str) -> Option<String> {

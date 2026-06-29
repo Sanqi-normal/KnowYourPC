@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import "./styles.css";
 import type {
-  NodeDto,
+  ChildNode,
   ProgressEvent,
   ScanMode,
   ScanOptions,
@@ -31,8 +31,8 @@ const OVERSCAN_ROWS = 18;
 
 let volumes: VolumeInfo[] = [];
 let result: ScanResult | null = null;
-let nodes: NodeDto[] = [];
-let nodesMap = new Map<number, NodeDto>();
+let nodeCache = new Map<number, ChildNode>();
+let parentChildren = new Map<number, number[]>();
 let expanded = new Set<number>([0]);
 let selectedId = 0;
 let visibleRows: { id: number; depth: number }[] = [];
@@ -83,13 +83,6 @@ const treemapTooltip = qs<HTMLDivElement>("#treemapTooltip");
 let contextMenuId: number | null = null;
 let searchTimeout: ReturnType<typeof setTimeout> | null = null;
 
-function updateNodesMap() {
-  nodesMap.clear();
-  for (const n of nodes) {
-    nodesMap.set(n.id, n);
-  }
-}
-
 async function bootstrap() {
   wireEvents();
   checkAdmin();
@@ -119,33 +112,33 @@ function wireEvents() {
 
   scanButton.addEventListener("click", () => startScan());
 
-  upButton.addEventListener("click", () => {
-    const current = nodes[selectedId];
+  upButton.addEventListener("click", async () => {
+    const current = nodeCache.get(selectedId);
     if (current?.parent != null) {
-      selectNode(current.parent, true, false);
+      await selectNode(current.parent, true, false);
     }
   });
 
-  zoomOutBtn.addEventListener("click", () => {
-    const current = nodes[selectedId];
+  zoomOutBtn.addEventListener("click", async () => {
+    const current = nodeCache.get(selectedId);
     if (current?.parent != null) {
-      selectNode(current.parent, true, true);
+      await selectNode(current.parent, true, true);
     }
   });
 
   treeViewport.addEventListener("scroll", () => renderRows());
 
-  treeRows.addEventListener("click", (event) => {
+  treeRows.addEventListener("click", async (event) => {
     const target = event.target as HTMLElement;
     const row = target.closest<HTMLElement>(".tree-row");
     if (!row) return;
     const id = Number(row.dataset.id);
-    if (!Number.isInteger(id) || !nodes[id]) return;
+    if (!Number.isInteger(id) || !nodeCache.has(id)) return;
     if (target.closest(".twisty")) {
-      toggleExpanded(id);
+      await toggleExpanded(id);
       return;
     }
-    selectNode(id, false, false);
+    await selectNode(id, false, false);
   });
 
   treeRows.addEventListener("contextmenu", (event) => {
@@ -153,18 +146,19 @@ function wireEvents() {
     const row = target.closest<HTMLElement>(".tree-row");
     if (!row) return;
     const id = Number(row.dataset.id);
-    if (!Number.isInteger(id) || !nodes[id]) return;
+    if (!Number.isInteger(id) || !nodeCache.has(id)) return;
     event.preventDefault();
     showContextMenu(event.clientX, event.clientY, id);
   });
 
-  treemapCanvas.addEventListener("click", (event) => {
+  treemapCanvas.addEventListener("click", async (event) => {
     const rect = treemapCanvas.getBoundingClientRect();
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
     const hit = hitTestTreemap(treemapRects, x, y);
-    if (hit != null && nodes[hit]) {
-      selectNode(hit, true, nodes[hit].isDir);
+    if (hit != null && nodeCache.has(hit)) {
+      const hitNode = nodeCache.get(hit)!;
+      await selectNode(hit, true, hitNode.isDir);
     }
   });
 
@@ -173,7 +167,7 @@ function wireEvents() {
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
     const hit = hitTestTreemapNode(treemapRects, x, y);
-    if (hit && nodes[hit.id]) {
+    if (hit && nodeCache.has(hit.id)) {
       event.preventDefault();
       showContextMenu(event.clientX, event.clientY, hit.id);
     }
@@ -184,9 +178,9 @@ function wireEvents() {
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
     const hit = hitTestTreemapNode(treemapRects, x, y);
-    if (hit && nodes[hit.id]) {
-      const path = buildNodePath(hit.id, nodesMap, selectedId);
-      treemapTooltip.textContent = `${path}  ${formatBytes(hit.node.totalAllocated)}`;
+    if (hit && nodeCache.has(hit.id)) {
+      const path = buildNodePath(hit.id, nodeCache, selectedId);
+      treemapTooltip.textContent = `${path}  ${formatBytes(hit.item.size)}`;
       treemapTooltip.style.left = `${event.clientX + 12}px`;
       treemapTooltip.style.top = `${event.clientY + 12}px`;
       treemapTooltip.classList.remove("hidden");
@@ -222,11 +216,11 @@ function wireEvents() {
     hideContextMenu();
   });
 
-  ctxExpandTreemap.addEventListener("click", () => {
+  ctxExpandTreemap.addEventListener("click", async () => {
     if (contextMenuId != null) {
-      const node = nodes[contextMenuId];
+      const node = nodeCache.get(contextMenuId);
       if (node && node.isDir) {
-        selectNode(contextMenuId, true, true);
+        await selectNode(contextMenuId, true, true);
       }
     }
     hideContextMenu();
@@ -359,10 +353,10 @@ function renderSearchResults(items: SearchResult[]) {
       <span class="search-result-size">${formatBytes(item.totalAllocated)}</span>
       <span class="search-result-path">${escapeHtml(shortenPath(item.path))}</span>
     `;
-    row.addEventListener("click", () => {
+    row.addEventListener("click", async () => {
       searchResults.classList.add("hidden");
       searchInput.blur();
-      selectNode(item.id, true, item.isDir);
+      await selectNode(item.id, true, item.isDir);
     });
     row.addEventListener("mousedown", (e) => e.preventDefault());
     searchResults.append(row);
@@ -383,7 +377,7 @@ function shortenPath(path: string): string {
 }
 
 async function openInExplorer(nodeId: number) {
-  const node = nodes[nodeId];
+  const node = nodeCache.get(nodeId);
   if (!node) return;
   const path = await nodePath(nodeId);
   try {
@@ -403,7 +397,7 @@ async function copyNodePath(nodeId: number) {
 }
 
 async function copyNodeName(nodeId: number) {
-  const node = nodes[nodeId];
+  const node = nodeCache.get(nodeId);
   if (!node) return;
   try {
     await navigator.clipboard.writeText(node.name);
@@ -444,6 +438,17 @@ function renderVolumeOptions() {
   if (preferred) volumeSelect.value = preferred.root;
 }
 
+async function loadChildren(parentId: number): Promise<ChildNode[]> {
+  const children = await invoke<ChildNode[]>("get_children", { parentId });
+  const childIds: number[] = [];
+  for (const child of children) {
+    nodeCache.set(child.id, child);
+    childIds.push(child.id);
+  }
+  parentChildren.set(parentId, childIds);
+  return children;
+}
+
 async function startScan() {
   if (scanning) return;
   const root = volumeSelect.value;
@@ -464,14 +469,29 @@ async function startScan() {
 
   try {
     result = await invoke<ScanResult>("scan", { options });
-    nodes = result.nodes;
-    updateNodesMap();
+    nodeCache.clear();
+    parentChildren.clear();
     selectedId = 0;
     expanded = new Set<number>([0]);
+    const rootChildren = await loadChildren(0);
+    nodeCache.set(0, {
+      id: 0,
+      parent: null,
+      name: result.root,
+      isDir: true,
+      size: 0,
+      allocated: 0,
+      totalSize: result.totalSize,
+      totalAllocated: result.totalAllocated,
+      childCount: rootChildren.length,
+      fileCount: result.fileCount,
+      dirCount: result.dirCount,
+      extension: null,
+    });
     rebuildVisibleRows();
     renderSummary();
     renderWarnings();
-    selectNode(0, false, true);
+    await selectNode(0, false, true);
     loadExtensionStats();
     searchWrap.classList.remove("hidden");
     searchInput.value = "";
@@ -557,21 +577,19 @@ function hashExt(text: string): number {
 }
 
 function rebuildVisibleRows() {
-  if (!nodes.length) {
-    visibleRows = [];
-    treeSpacer.style.height = "100%";
-    return;
-  }
   const rows: { id: number; depth: number }[] = [];
   const stack: { id: number; depth: number }[] = [{ id: 0, depth: 0 }];
   while (stack.length > 0) {
     const row = stack.pop()!;
-    const node = nodes[row.id];
+    const node = nodeCache.get(row.id);
     if (!node) continue;
     rows.push(row);
-    if (expanded.has(row.id) && node.children.length > 0) {
-      for (let i = node.children.length - 1; i >= 0; i--) {
-        stack.push({ id: node.children[i], depth: row.depth + 1 });
+    if (expanded.has(row.id) && node.childCount > 0) {
+      const childIds = parentChildren.get(row.id);
+      if (childIds) {
+        for (let i = childIds.length - 1; i >= 0; i--) {
+          stack.push({ id: childIds[i], depth: row.depth + 1 });
+        }
       }
     }
   }
@@ -592,7 +610,7 @@ function renderRows() {
 
   for (let index = start; index < end; index++) {
     const rowInfo = visibleRows[index];
-    const node = nodes[rowInfo.id];
+    const node = nodeCache.get(rowInfo.id);
     if (!node) continue;
 
     const row = document.createElement("div");
@@ -640,25 +658,38 @@ function numericCell(text: string): HTMLDivElement {
   return cell;
 }
 
-function percentOfRoot(node: NodeDto): string {
+function percentOfRoot(node: ChildNode): string {
   const total = result?.totalAllocated ?? 0;
   if (total <= 0) return "—";
   return formatPercent((node.totalAllocated / total) * 100);
 }
 
-function toggleExpanded(id: number) {
-  if (!nodes[id]) return;
-  if (expanded.has(id)) expanded.delete(id);
-  else expanded.add(id);
+async function toggleExpanded(id: number) {
+  const node = nodeCache.get(id);
+  if (!node) return;
+  if (expanded.has(id)) {
+    expanded.delete(id);
+  } else {
+    if (node.childCount > 0) {
+      await loadChildren(id);
+    }
+    expanded.add(id);
+  }
   rebuildVisibleRows();
   renderRows();
 }
 
 async function selectNode(id: number, scrollIntoView: boolean, expandSelf: boolean) {
-  if (!nodes[id]) return;
+  const node = nodeCache.get(id);
+  if (!node) return;
   selectedId = id;
-  ensureAncestorsExpanded(id);
-  if (expandSelf && nodes[id].isDir) expanded.add(id);
+  await ensureAncestorsExpanded(id);
+  if (expandSelf && node.isDir) {
+    if (node.childCount > 0) {
+      await loadChildren(id);
+    }
+    expanded.add(id);
+  }
   rebuildVisibleRows();
   if (scrollIntoView) scrollSelectedIntoView();
   renderRows();
@@ -666,11 +697,19 @@ async function selectNode(id: number, scrollIntoView: boolean, expandSelf: boole
   await renderSelectedPath();
 }
 
-function ensureAncestorsExpanded(id: number) {
-  let current = nodes[id]?.parent;
-  while (current != null && nodes[current]) {
-    expanded.add(current);
-    current = nodes[current].parent;
+async function ensureAncestorsExpanded(id: number) {
+  const path: number[] = [];
+  let current = nodeCache.get(id)?.parent;
+  while (current != null && nodeCache.has(current)) {
+    path.push(current);
+    current = nodeCache.get(current)?.parent;
+  }
+  for (let i = path.length - 1; i >= 0; i--) {
+    const pid = path[i];
+    if (!expanded.has(pid)) {
+      await loadChildren(pid);
+      expanded.add(pid);
+    }
   }
 }
 
@@ -687,52 +726,31 @@ function scrollSelectedIntoView() {
 }
 
 async function renderTreemap() {
-  if (!nodes[selectedId]) return;
+  if (!nodeCache.has(selectedId)) return;
   try {
     const items = await invoke<TreemapItem[]>("get_treemap_data", {
       rootId: selectedId,
       maxItems: 3000,
     });
-    treemapRects = drawTreemap(treemapCanvas, nodes, selectedId, items);
+    treemapRects = drawTreemap(treemapCanvas, items);
   } catch {
-    treemapRects = drawTreemap(treemapCanvas, nodes, selectedId);
+    treemapRects = [];
   }
 }
 
 async function renderSelectedPath() {
-  if (!nodes[selectedId]) {
+  const node = nodeCache.get(selectedId);
+  if (!node) {
     selectedPath.textContent = "未选择";
     return;
   }
-  const node = nodes[selectedId];
   const path = await nodePath(selectedId);
   selectedPath.textContent = `${path} ${formatBytes(node.totalAllocated)}`;
 }
 
 async function nodePath(id: number): Promise<string> {
-  if (!nodes[id]) return "";
-  try {
-    return await invoke<string>("get_node_path", { nodeId: id });
-  } catch {
-    return localNodePath(id);
-  }
-}
-
-function localNodePath(id: number): string {
-  const parts: string[] = [];
-  let current: number | null | undefined = id;
-  while (current != null && nodes[current]) {
-    parts.push(nodes[current].name);
-    current = nodes[current].parent;
-  }
-  parts.reverse();
-  if (parts.length === 0) return "";
-  let path = parts[0];
-  for (let i = 1; i < parts.length; i++) {
-    if (path.endsWith("\\") || path.endsWith("/")) path += parts[i];
-    else path += `\\${parts[i]}`;
-  }
-  return path;
+  if (!nodeCache.has(id)) return "";
+  return await invoke<string>("get_node_path", { nodeId: id });
 }
 
 function renderWarnings() {
