@@ -5,8 +5,8 @@ use std::{
 };
 
 use anyhow::{bail, Result};
-use jwalk::WalkDir;
 use tauri::AppHandle;
+use walkdir::WalkDir;
 use crate::{
     models::ScanResult,
     scanner::{
@@ -31,7 +31,7 @@ pub fn scan_path(app: &AppHandle, root: &str) -> Result<ScanResult> {
         "walk.start",
         0,
         None,
-        format!("正在使用并行递归模式扫描 {root}"),
+        format!("正在使用兼容递归模式扫描 {root}"),
     );
 
     let cluster_size = crate::win::volume::cluster_size_for_root(root).max(1);
@@ -46,10 +46,7 @@ pub fn scan_path(app: &AppHandle, root: &str) -> Result<ScanResult> {
     let mut processed = 0u64;
     let mut last_emit = Instant::now();
 
-    for entry in WalkDir::new(&root_path)
-        .follow_links(false)
-        .skip_hidden(false)
-    {
+    for entry in WalkDir::new(&root_path).follow_links(false) {
         let entry = match entry {
             Ok(entry) => entry,
             Err(error) => {
@@ -115,13 +112,29 @@ pub fn scan_path(app: &AppHandle, root: &str) -> Result<ScanResult> {
                 "walk.scan",
                 processed,
                 None,
-                format!("并行递归扫描中，已处理 {} 个项目", processed),
+                format!("兼容递归扫描中，已处理 {} 个项目", processed),
             );
             last_emit = Instant::now();
         }
     }
 
+    emit_progress(
+        app,
+        "walk.aggregate",
+        1,
+        Some(2),
+        format!("正在聚合目录大小 ({} 个项目)", processed),
+    );
+
     let nodes = finalize_tree(nodes);
+
+    emit_progress(
+        app,
+        "walk.done",
+        2,
+        Some(2),
+        format!("聚合完成，共 {} 个节点", nodes.len()),
+    );
 
     let total_size = nodes.first().map(|node| node.total_size).unwrap_or(0);
     let total_allocated = nodes.first().map(|node| node.total_allocated).unwrap_or(0);
@@ -130,7 +143,7 @@ pub fn scan_path(app: &AppHandle, root: &str) -> Result<ScanResult> {
 
     Ok(ScanResult {
         root: root.to_string(),
-        scanner: "jwalk-parallel".to_string(),
+        scanner: "walkdir-seq".to_string(),
         elapsed_ms: started.elapsed().as_millis() as u64,
         node_count: nodes.len() as u64,
         file_count,

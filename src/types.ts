@@ -83,7 +83,7 @@ export const EXTENSION_CATEGORIES: Record<string, ExtCategory> = {
   // 视频类
   mp4: "video", avi: "video", mkv: "video", mov: "video",
   wmv: "video", flv: "video", webm: "video", mpg: "video",
-  mpeg: "video", m4v: "video", ts: "video", rmvb: "video",
+  mpeg: "video", m4v: "video", m2t: "video", rmvb: "video",
   rm: "video", vob: "video", ogv: "video", "3gp": "video",
   mts: "video", m2ts: "video",
 

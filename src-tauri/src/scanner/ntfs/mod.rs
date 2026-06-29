@@ -88,11 +88,11 @@ pub fn scan_volume(app: &AppHandle, root: &str) -> Result<ScanResult> {
         app,
         "ntfs.tree",
         parsed_records.len() as u64,
-        None,
-        "正在重建目录树并聚合大小".to_string(),
+        Some(parsed_records.len() as u64 + 1),
+        format!("正在重建目录树({}条记录)...", parsed_records.len()),
     );
 
-    let nodes = build_tree_from_records(&root_display, parsed_records);
+    let nodes = build_tree_from_records(app, &root_display, parsed_records);
 
     let total_size = nodes.first().map(|node| node.total_size).unwrap_or(0);
     let total_allocated = nodes
@@ -225,10 +225,15 @@ fn enumerate_mft_records(
     Ok(parsed)
 }
 
-fn build_tree_from_records(root: &str, records: Vec<ParsedRecord>) -> Vec<crate::models::NodeDto> {
+fn build_tree_from_records(app: &AppHandle, root: &str, records: Vec<ParsedRecord>) -> Vec<crate::models::NodeDto> {
     let filtered: Vec<ParsedRecord> = records
         .into_iter()
-        .filter(|record| record.record_number != 5 && record.name != ".")
+        .filter(|record| {
+            if record.record_number == 5 { return false; }
+            if record.name == "." { return false; }
+            if record.name.starts_with('$') { return false; }
+            true
+        })
         .collect();
 
     let mut nodes = Vec::<TreeNode>::with_capacity(filtered.len() + 1);
@@ -274,7 +279,25 @@ fn build_tree_from_records(root: &str, records: Vec<ParsedRecord>) -> Vec<crate:
         nodes[parent_id as usize].children.push(id);
     }
 
-    finalize_tree(nodes)
+    emit_progress(
+        app,
+        "ntfs.aggregate",
+        1,
+        Some(2),
+        "正在聚合目录大小...",
+    );
+
+    let result = finalize_tree(nodes);
+
+    emit_progress(
+        app,
+        "ntfs.done",
+        2,
+        Some(2),
+        format!("树构建完成，共 {} 个节点", result.len()),
+    );
+
+    result
 }
 
 #[cfg(windows)]

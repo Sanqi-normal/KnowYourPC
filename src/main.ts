@@ -9,9 +9,7 @@ import type {
   ScanResult,
   VolumeInfo,
   ExtensionStat,
-  ExtCategory,
 } from "./types";
-import { extCategory, CATEGORY_COLORS, CATEGORY_LABELS } from "./types";
 import {
   formatBytes,
   formatDuration,
@@ -179,7 +177,7 @@ function wireEvents() {
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
     const hit = hitTestTreemapNode(treemapRects, x, y);
-    if (hit && hit.id >= 0 && nodes[hit.id]) {
+    if (hit && nodes[hit.id]) {
       const path = buildNodePath(hit.id, nodesMap, selectedId);
       treemapTooltip.textContent = `${path}  ${formatBytes(hit.node.totalAllocated)}`;
       treemapTooltip.style.left = `${event.clientX + 12}px`;
@@ -443,38 +441,34 @@ function renderExtensionStats(stats: ExtensionStat[]) {
   const totalAllocated = stats.reduce((s, st) => s + st.allocated, 0);
   if (totalAllocated <= 0) return;
 
-  const categoryMap = new Map<ExtCategory, { size: number; allocated: number; count: number }>();
-
   for (const stat of stats) {
-    const cat = extCategory(stat.extension);
-    const entry = categoryMap.get(cat) ?? { size: 0, allocated: 0, count: 0 };
-    entry.size += stat.size;
-    entry.allocated += stat.allocated;
-    entry.count += stat.fileCount;
-    categoryMap.set(cat, entry);
-  }
-
-  const sorted = Array.from(categoryMap.entries())
-    .sort((a, b) => b[1].allocated - a[1].allocated);
-
-  for (const [cat, data] of sorted) {
     const item = document.createElement("div");
     item.className = "ext-item";
 
-    const pct = (data.allocated / totalAllocated) * 100;
-    const color = CATEGORY_COLORS[cat];
+    const pct = (stat.allocated / totalAllocated) * 100;
+    const ext = stat.extension || "(无)";
+    const hue = hashExt(ext);
 
     item.innerHTML = `
-      <span class="ext-name">${CATEGORY_LABELS[cat]}</span>
+      <span class="ext-name">.${ext}</span>
       <div class="ext-bar-wrap">
-        <div class="ext-bar-fill" style="width:${pct}%;background:${color}"></div>
-        <span class="ext-bar-label">${formatBytes(data.allocated)} (${formatNumber(data.count)})</span>
+        <div class="ext-bar-fill" style="width:${pct}%;background:hsl(${hue},55%,50%)"></div>
+        <span class="ext-bar-label">${formatBytes(stat.allocated)} (${formatNumber(stat.fileCount)})</span>
       </div>
       <span class="ext-size">${pct.toFixed(1)}%</span>
     `;
 
     extList.append(item);
   }
+}
+
+function hashExt(text: string): number {
+  let hash = 2166136261;
+  for (let i = 0; i < text.length; i += 1) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return Math.abs(hash) % 360;
 }
 
 function rebuildVisibleRows() {

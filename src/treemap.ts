@@ -1,5 +1,4 @@
 import type { NodeDto } from "./types";
-import { extCategory, CATEGORY_COLORS } from "./types";
 import { formatBytes } from "./format";
 
 export interface TreemapRect {
@@ -25,7 +24,7 @@ interface LayoutItem {
   node: NodeDto;
 }
 
-const MAX_VISIBLE_ITEMS = 500;
+const MAX_VISIBLE = 3000;
 
 export function drawTreemap(
   canvas: HTMLCanvasElement,
@@ -68,39 +67,29 @@ export function drawTreemap(
   }
 
   items.sort((a, b) => b.size - a.size);
-  const total = items.reduce((s, i) => s + i.size, 0);
+
+  let layoutItems: LayoutItem[];
+  if (items.length > MAX_VISIBLE) {
+    layoutItems = items.slice(0, MAX_VISIBLE);
+  } else {
+    layoutItems = items;
+  }
+
+  if (layoutItems.length === 0) {
+    drawEmpty(ctx, width, height, "无可视化数据");
+    return [];
+  }
+
+  const total = layoutItems.reduce((s, i) => s + i.size, 0);
   if (total <= 0) {
     drawEmpty(ctx, width, height, "总大小为 0");
     return [];
   }
 
-  let layoutItems: LayoutItem[];
-  if (items.length > MAX_VISIBLE_ITEMS) {
-    const taken = items.slice(0, MAX_VISIBLE_ITEMS - 1);
-    const remainder = items.slice(MAX_VISIBLE_ITEMS - 1);
-    const otherSize = remainder.reduce((s, i) => s + i.size, 0);
-    if (otherSize > 0) {
-      taken.push({
-        id: -1,
-        size: otherSize,
-        node: {
-          id: -1, parent: null, name: `其他 (${remainder.length}项)`,
-          isDir: false, size: otherSize, allocated: otherSize,
-          totalSize: otherSize, totalAllocated: otherSize,
-          childCount: 0, children: [], fileCount: 0, dirCount: 0, extension: null,
-        },
-      });
-    }
-    layoutItems = taken;
-  } else {
-    layoutItems = items;
-  }
-
-  const layoutTotal = layoutItems.reduce((s, i) => s + i.size, 0);
   const rects: TreemapRect[] = [];
 
   const inset = 2;
-  squarify(layoutItems, { x: inset, y: inset, w: width - inset * 2, h: height - inset * 2 }, layoutTotal, 0, rects);
+  squarify(layoutItems, { x: inset, y: inset, w: width - inset * 2, h: height - inset * 2 }, total, 0, rects);
 
   for (const rect of rects) {
     drawRect(ctx, rect);
@@ -119,7 +108,7 @@ function collectItems(nodes: NodeDto[], rootId: number): LayoutItem[] {
     if (!n) continue;
     if (n.totalAllocated <= 0) continue;
 
-    if (n.isDir && n.children.length > 0 && n.isDir) {
+    if (n.isDir && n.children.length > 0) {
       stack.push(...n.children);
     } else {
       result.push({ id: n.id, size: n.totalAllocated, node: n });
@@ -233,14 +222,13 @@ function drawRect(ctx: CanvasRenderingContext2D, rect: TreemapRect) {
   const node = rect.node;
   let color: string;
 
-  if (node.id === -1) {
-    color = "hsl(0, 0%, 35%)";
-  } else if (node.isDir) {
+  if (node.isDir) {
     const hue = hashHue(node.name);
     color = `hsl(${hue}, 35%, 35%)`;
   } else {
-    const cat = extCategory(node.extension);
-    color = CATEGORY_COLORS[cat];
+    const ext = node.extension || "";
+    const hue = hashHue(ext || node.name);
+    color = `hsl(${hue}, 55%, 50%)`;
   }
 
   ctx.fillStyle = color;
@@ -331,11 +319,11 @@ function hashHue(text: string): number {
   return Math.abs(hash) % 360;
 }
 
-export function buildNodePath(id: number, nodes: Map<number, NodeDto>, rootId: number): string {
+export function buildNodePath(id: number, nodeMap: Map<number, NodeDto>, rootId: number): string {
   const parts: string[] = [];
   let current: number | null | undefined = id;
-  while (current != null && nodes.has(current)) {
-    const n = nodes.get(current)!;
+  while (current != null && nodeMap.has(current)) {
+    const n = nodeMap.get(current) as NodeDto;
     parts.push(n.name);
     if (current === rootId) break;
     current = n.parent;
