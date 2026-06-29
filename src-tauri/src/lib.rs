@@ -6,19 +6,16 @@ pub mod models;
 pub mod scanner;
 pub mod win;
 
-use models::ScanResult;
-use scanner::tree::TreeNode;
+use models::NodeDto;
 
 pub struct AppState {
-    pub scan: Mutex<Option<ScanResult>>,
-    pub tree: Mutex<Option<Vec<TreeNode>>>,
+    pub tree: Mutex<Option<Vec<NodeDto>>>,
     pub root_path: Mutex<Option<String>>,
 }
 
 impl Default for AppState {
     fn default() -> Self {
         Self {
-            scan: Mutex::new(None),
             tree: Mutex::new(None),
             root_path: Mutex::new(None),
         }

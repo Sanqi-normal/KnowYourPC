@@ -59,6 +59,7 @@ pub struct NodeDto {
 #[serde(rename_all = "camelCase")]
 pub struct ChildNode {
     pub id: u32,
+    pub parent: Option<u32>,
     pub name: String,
     pub is_dir: bool,
     pub size: u64,

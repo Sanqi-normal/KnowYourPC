@@ -126,7 +126,7 @@ pub fn scan_path(app: &AppHandle, root: &str) -> Result<ScanResult> {
         format!("正在聚合目录大小 ({} 个项目)", processed),
     );
 
-    let nodes = finalize_tree(nodes);
+    let nodes = finalize_tree(app, nodes);
 
     emit_progress(
         app,
