@@ -7,10 +7,9 @@
   </head>
   <body>
     <div id="app">
-      <header class="toolbar">
+      <header id="toolbar" class="toolbar">
         <div class="brand">
           <div class="brand-title">Fast Disk Analyzer</div>
-          <div class="brand-subtitle">NTFS MFT accelerated scanner</div>
         </div>
 
         <label class="toolbar-field">
@@ -21,7 +20,7 @@
         <label class="toolbar-field">
           <span>模式</span>
           <select id="modeSelect">
-            <option value="auto">Auto</option>
+            <option value="auto">自动</option>
             <option value="ntfsMft">NTFS MFT</option>
             <option value="walk">兼容递归</option>
           </select>
@@ -30,55 +29,58 @@
         <button id="refreshVolumesButton" class="secondary-button">刷新卷</button>
         <button id="scanButton" class="primary-button">开始扫描</button>
 
+        <div id="adminBanner" class="admin-banner hidden">
+          <span>⚠ 未以管理员身份运行，MFT 模式可能不可用</span>
+          <button id="restartAdminBtn" class="admin-restart-btn">以管理员身份重启</button>
+        </div>
+
         <div class="progress-wrap">
           <div id="progressBar" class="progress-bar">
             <div id="progressFill" class="progress-fill"></div>
           </div>
-          <div id="statusText" class="status-text">准备就绪</div>
+          <div id="statusText" class="status-text">就绪</div>
         </div>
       </header>
 
-      <section class="summary-grid">
-        <div class="summary-card">
-          <div class="summary-label">占用空间</div>
-          <div id="summaryAllocated" class="summary-value">—</div>
+      <section id="summaryBar" class="summary-bar">
+        <div class="summary-item">
+          <span class="summary-label">占用空间</span>
+          <span id="summaryAllocated" class="summary-value">—</span>
         </div>
-        <div class="summary-card">
-          <div class="summary-label">逻辑大小</div>
-          <div id="summarySize" class="summary-value">—</div>
+        <div class="summary-item">
+          <span class="summary-label">逻辑大小</span>
+          <span id="summarySize" class="summary-value">—</span>
         </div>
-        <div class="summary-card">
-          <div class="summary-label">文件</div>
-          <div id="summaryFiles" class="summary-value">—</div>
+        <div class="summary-item">
+          <span class="summary-label">文件</span>
+          <span id="summaryFiles" class="summary-value">—</span>
         </div>
-        <div class="summary-card">
-          <div class="summary-label">目录</div>
-          <div id="summaryDirs" class="summary-value">—</div>
+        <div class="summary-item">
+          <span class="summary-label">目录</span>
+          <span id="summaryDirs" class="summary-value">—</span>
         </div>
-        <div class="summary-card wide">
-          <div class="summary-label">扫描器</div>
-          <div id="summaryScanner" class="summary-value">—</div>
+        <div class="summary-item">
+          <span class="summary-label">扫描器</span>
+          <span id="summaryScanner" class="summary-value">—</span>
         </div>
       </section>
 
-      <main class="main-split">
-        <section class="tree-panel">
-          <div class="panel-title-row">
-            <div>
-              <div class="panel-title">文件树</div>
-              <div id="selectedPath" class="selected-path">未选择</div>
+      <main id="mainContent" class="main-content">
+        <section id="treePanel" class="pane tree-pane">
+          <div class="pane-header">
+            <span class="pane-title">文件树</span>
+            <div class="pane-header-right">
+              <span id="selectedPath" class="selected-path">未选择</span>
+              <button id="upButton" class="small-button" title="上一级">↑</button>
             </div>
-            <button id="upButton" class="secondary-button small">上一级</button>
           </div>
-
           <div class="table-header">
             <div>名称</div>
-            <div class="numeric">占用空间</div>
-            <div class="numeric">逻辑大小</div>
+            <div class="numeric">占用</div>
+            <div class="numeric">逻辑</div>
             <div class="numeric">占比</div>
-            <div class="numeric">项目数</div>
+            <div class="numeric">项目</div>
           </div>
-
           <div id="treeViewport" class="tree-viewport">
             <div id="treeSpacer" class="tree-spacer">
               <div id="treeRows" class="tree-rows"></div>
@@ -86,20 +88,38 @@
           </div>
         </section>
 
-        <section class="viz-panel">
-          <div class="panel-title-row">
-            <div>
-              <div class="panel-title">Treemap</div>
-              <div id="treemapHint" class="selected-path">
-                点击色块可定位节点
-              </div>
+        <div id="splitter1" class="splitter splitter-v"></div>
+
+        <section id="vizPanel" class="pane viz-pane">
+          <div class="pane-header">
+            <span class="pane-title">Treemap</span>
+            <div class="pane-header-right">
+              <button id="zoomOutBtn" class="small-button" title="返回上级">←</button>
             </div>
           </div>
           <canvas id="treemapCanvas"></canvas>
+          <div id="treemapTooltip" class="treemap-tooltip hidden"></div>
+        </section>
+
+        <div id="splitter2" class="splitter splitter-v"></div>
+
+        <section id="extPanel" class="pane ext-pane">
+          <div class="pane-header">
+            <span class="pane-title">扩展名</span>
+          </div>
+          <div id="extList" class="ext-list"></div>
         </section>
       </main>
 
       <footer id="warnings" class="warnings"></footer>
+    </div>
+
+    <div id="contextMenu" class="context-menu hidden">
+      <div id="ctxExpandTreemap" class="ctx-item">从此处展开树图</div>
+      <div class="ctx-separator"></div>
+      <div id="ctxOpen" class="ctx-item">在资源管理器中打开</div>
+      <div id="ctxCopyPath" class="ctx-item">复制路径</div>
+      <div id="ctxCopyName" class="ctx-item">复制文件名</div>
     </div>
 
     <script type="module" src="/src/main.ts"></script>

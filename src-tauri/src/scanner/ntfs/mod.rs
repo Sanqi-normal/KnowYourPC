@@ -5,6 +5,7 @@ mod runs;
 use std::collections::HashMap;
 
 use anyhow::{bail, Context, Result};
+use rayon::prelude::*;
 use tauri::AppHandle;
 
 use crate::{
@@ -179,21 +180,27 @@ fn enumerate_mft_records(
             stream_bytes_read = stream_bytes_read.saturating_add(read_len as u64);
 
             let complete_len = (buf.len() / boot.file_record_size) * boot.file_record_size;
+            let bps = boot.bytes_per_sector as usize;
+            let rec_size = boot.file_record_size;
 
-            for record_buf in buf[..complete_len].chunks_mut(boot.file_record_size) {
-                if records_seen >= record_count {
-                    break;
-                }
+            let parsed_chunk: Vec<Option<ParsedRecord>> = buf[..complete_len]
+                .par_chunks_mut(rec_size)
+                .enumerate()
+                .map(|(i, record_buf)| {
+                    record::parse_user_file_record(
+                        records_seen + i as u64,
+                        record_buf,
+                        bps,
+                    )
+                })
+                .collect();
 
-                if let Some(record) = record::parse_user_file_record(
-                    records_seen,
-                    record_buf,
-                    boot.bytes_per_sector as usize,
-                ) {
+            records_seen += parsed_chunk.len() as u64;
+
+            for rec in parsed_chunk {
+                if let Some(record) = rec {
                     parsed.push(record);
                 }
-
-                records_seen += 1;
             }
 
             pending.clear();

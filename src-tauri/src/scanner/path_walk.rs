@@ -5,9 +5,8 @@ use std::{
 };
 
 use anyhow::{bail, Result};
+use jwalk::WalkDir;
 use tauri::AppHandle;
-use walkdir::WalkDir;
-
 use crate::{
     models::ScanResult,
     scanner::{
@@ -15,6 +14,9 @@ use crate::{
         tree::{finalize_tree, TreeNode},
     },
 };
+
+const PROGRESS_INTERVAL_MS: u64 = 200;
+const WARN_LIMIT: usize = 64;
 
 pub fn scan_path(app: &AppHandle, root: &str) -> Result<ScanResult> {
     let started = Instant::now();
@@ -29,7 +31,7 @@ pub fn scan_path(app: &AppHandle, root: &str) -> Result<ScanResult> {
         "walk.start",
         0,
         None,
-        format!("正在使用兼容递归模式扫描 {root}"),
+        format!("正在使用并行递归模式扫描 {root}"),
     );
 
     let cluster_size = crate::win::volume::cluster_size_for_root(root).max(1);
@@ -46,8 +48,7 @@ pub fn scan_path(app: &AppHandle, root: &str) -> Result<ScanResult> {
 
     for entry in WalkDir::new(&root_path)
         .follow_links(false)
-        .same_file_system(false)
-        .into_iter()
+        .skip_hidden(false)
     {
         let entry = match entry {
             Ok(entry) => entry,
@@ -108,13 +109,13 @@ pub fn scan_path(app: &AppHandle, root: &str) -> Result<ScanResult> {
             directory_ids.insert(entry.path().to_path_buf(), id);
         }
 
-        if last_emit.elapsed().as_millis() > 250 {
+        if last_emit.elapsed().as_millis() > PROGRESS_INTERVAL_MS as u128 {
             emit_progress(
                 app,
                 "walk.scan",
                 processed,
                 None,
-                format!("兼容递归扫描中，已处理 {} 个项目", processed),
+                format!("并行递归扫描中，已处理 {} 个项目", processed),
             );
             last_emit = Instant::now();
         }
@@ -123,16 +124,13 @@ pub fn scan_path(app: &AppHandle, root: &str) -> Result<ScanResult> {
     let nodes = finalize_tree(nodes);
 
     let total_size = nodes.first().map(|node| node.total_size).unwrap_or(0);
-    let total_allocated = nodes
-        .first()
-        .map(|node| node.total_allocated)
-        .unwrap_or(0);
+    let total_allocated = nodes.first().map(|node| node.total_allocated).unwrap_or(0);
     let file_count = nodes.first().map(|node| node.file_count).unwrap_or(0);
     let dir_count = nodes.first().map(|node| node.dir_count).unwrap_or(0);
 
     Ok(ScanResult {
         root: root.to_string(),
-        scanner: "walkdir-fallback".to_string(),
+        scanner: "jwalk-parallel".to_string(),
         elapsed_ms: started.elapsed().as_millis() as u64,
         node_count: nodes.len() as u64,
         file_count,
@@ -145,24 +143,16 @@ pub fn scan_path(app: &AppHandle, root: &str) -> Result<ScanResult> {
 }
 
 fn approximate_allocated(size: u64, cluster_size: u64) -> u64 {
-    if size == 0 {
-        0
-    } else {
-        size.div_ceil(cluster_size) * cluster_size
-    }
+    if size == 0 { 0 } else { size.div_ceil(cluster_size) * cluster_size }
 }
 
 fn display_root(path: &Path) -> String {
     let text = path.display().to_string();
-    if text.is_empty() {
-        "/".to_string()
-    } else {
-        text
-    }
+    if text.is_empty() { "/".to_string() } else { text }
 }
 
 fn push_warning(warnings: &mut Vec<String>, warning: String) {
-    if warnings.len() < 64 {
+    if warnings.len() < WARN_LIMIT {
         warnings.push(warning);
     }
 }

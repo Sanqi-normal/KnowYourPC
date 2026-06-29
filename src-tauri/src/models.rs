@@ -78,3 +78,12 @@ pub struct ProgressEvent {
     pub total: Option<u64>,
     pub message: String,
 }
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtensionStat {
+    pub extension: String,
+    pub size: u64,
+    pub allocated: u64,
+    pub file_count: u64,
+}
