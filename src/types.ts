@@ -205,3 +205,5 @@ export function dirColor(name: string): string {
   }
   return DIR_COLORS[Math.abs(hash) % DIR_COLORS.length];
 }
+
+

@@ -219,7 +219,7 @@ button, select {
 }
 
 .tree-pane {
-  flex: 0 0 480px;
+  flex: 0 0 320px;
 }
 
 .viz-pane {
@@ -227,7 +227,7 @@ button, select {
 }
 
 .ext-pane {
-  flex: 0 0 260px;
+  flex: 0 0 180px;
   border-left: 1px solid var(--border);
 }
 
@@ -666,4 +666,40 @@ button, select {
   white-space: nowrap;
   font-size: 11px;
   text-align: right;
+}
+
+/* ===================== MCP Toggle Button ===================== */
+
+.mcp-toggle-btn {
+  flex: 0 0 auto;
+  cursor: pointer;
+  background: var(--accent-bg);
+  color: #fff;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: background 0.15s;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.mcp-toggle-btn:hover {
+  background: #388bfd;
+}
+
+.mcp-indicator-dot {
+  font-size: 14px;
+  line-height: 1;
+}
+.mcp-indicator-dot.off { color: #f85149; }
+.mcp-indicator-dot.starting { color: #d29922; animation: mcpPulse 0.8s infinite; }
+.mcp-indicator-dot.on { color: #3fb950; }
+.mcp-indicator-dot.error { color: #f85149; }
+
+@keyframes mcpPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
 }

@@ -1,9 +1,20 @@
 use std::collections::HashMap;
+use std::net::TcpListener;
+use std::path::PathBuf;
 
 use crate::error::AppResult;
 use crate::models::{ChildNode, ExtensionStat, NodeDto, ScanOptions, ScanResult, SearchResult, TreemapNode, VolumeInfo};
 use crate::AppState;
+use crate::McpState;
 use tauri::State;
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpStatus {
+    pub running: bool,
+    pub port: u16,
+}
 
 #[tauri::command]
 pub async fn list_volumes() -> Result<Vec<VolumeInfo>, String> {
@@ -430,3 +441,187 @@ pub fn get_extension_stats(state: State<'_, AppState>) -> AppResult<Vec<Extensio
 
     Ok(stats)
 }
+
+fn find_available_port(start: u16) -> Option<u16> {
+    for port in start..start + 10 {
+        if TcpListener::bind(("127.0.0.1", port)).is_ok() {
+            return Some(port);
+        }
+    }
+    None
+}
+
+fn check_http_health(port: u16) -> bool {
+    use std::io::{Read, Write};
+    if let Ok(mut stream) = std::net::TcpStream::connect(("127.0.0.1", port)) {
+        let request = format!("GET /health HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n");
+        if stream.write_all(request.as_bytes()).is_ok() {
+            let mut response = String::new();
+            if stream.read_to_string(&mut response).is_ok() {
+                return response.contains("200 OK") || response.contains("ok");
+            }
+        }
+    }
+    false
+}
+
+fn get_mcp_binary() -> Result<PathBuf, String> {
+    let binary_name = if cfg!(windows) { "fastscan-mcp.exe" } else { "fastscan-mcp" };
+
+    // 1. Environment variable override (highest priority)
+    if let Ok(env_path) = std::env::var("FASTSCAN_MCP_PATH") {
+        let p = PathBuf::from(&env_path);
+        if p.exists() {
+            return Ok(p);
+        }
+    }
+
+    let mut tried = Vec::new();
+
+    if let Ok(exe) = std::env::current_exe() {
+        let exe_dir = exe.parent().unwrap();
+
+        // 2. Same directory (bundled sidecar in production)
+        let p = exe_dir.join(binary_name);
+        tried.push(p.display().to_string());
+        if p.exists() {
+            return Ok(p);
+        }
+
+        // 3. bin/ subdirectory
+        let p = exe_dir.join("bin").join(binary_name);
+        tried.push(p.display().to_string());
+        if p.exists() {
+            return Ok(p);
+        }
+
+        // 4-5. Workspace target/ (2 levels up from exe_dir)
+        for profile in &["release", "debug"] {
+            let p = exe_dir
+                .join("..")
+                .join("..")
+                .join("target")
+                .join(profile)
+                .join(binary_name);
+            tried.push(p.display().to_string());
+            if p.exists() {
+                return Ok(p);
+            }
+        }
+
+        // 6-7. Independent crate build (3 levels up from exe_dir, for legacy non-workspace setups)
+        for profile in &["release", "debug"] {
+            let p = exe_dir
+                .join("..")
+                .join("..")
+                .join("..")
+                .join("crates")
+                .join("fastscan-mcp")
+                .join("target")
+                .join(profile)
+                .join(binary_name);
+            tried.push(p.display().to_string());
+            if p.exists() {
+                return Ok(p);
+            }
+        }
+    }
+
+    // 8. Search in PATH
+    if let Ok(path_var) = std::env::var("PATH") {
+        for dir in std::env::split_paths(&path_var) {
+            let p = dir.join(binary_name);
+            tried.push(p.display().to_string());
+            if p.exists() {
+                return Ok(p);
+            }
+        }
+    }
+
+    Err(format!(
+        "找不到 fastscan-mcp 二进制文件。已尝试以下路径:\n{}",
+        tried
+            .iter()
+            .map(|p| format!("  - {p}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    ))
+}
+
+#[tauri::command]
+pub async fn start_mcp_server(
+    state: State<'_, McpState>,
+) -> Result<u16, String> {
+    let mut child_guard = state.child.lock().unwrap();
+    if child_guard.is_some() {
+        return Err("MCP server 已经在运行中".into());
+    }
+
+    let port = find_available_port(3721).ok_or("无法找到可用端口 (3721-3730)")?;
+    let binary = get_mcp_binary()?;
+
+    let process = std::process::Command::new(&binary)
+        .arg("--http")
+        .arg("--port")
+        .arg(port.to_string())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("启动 MCP server 失败: {e}"))?;
+
+    // Wait briefly for health check
+    let port_clone = port;
+    let started = std::time::Instant::now();
+    let mut healthy = false;
+    while started.elapsed().as_millis() < 3000 {
+        if check_http_health(port_clone) {
+            healthy = true;
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+
+    if !healthy {
+        let _ = std::process::Command::new("taskkill")
+            .args(&["/PID", &process.id().to_string(), "/F"])
+            .output();
+        return Err("MCP server 启动超时 (3s)".into());
+    }
+
+    *child_guard = Some(process);
+    *state.port.lock().unwrap() = port_clone;
+    Ok(port_clone)
+}
+
+#[tauri::command]
+pub async fn stop_mcp_server(
+    state: State<'_, McpState>,
+) -> Result<(), String> {
+    let mut child_guard = state.child.lock().unwrap();
+    if let Some(mut child) = child_guard.take() {
+        #[cfg(windows)]
+        {
+            let _ = std::process::Command::new("taskkill")
+                .args(&["/PID", &child.id().to_string(), "/F"])
+                .output();
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = child.kill();
+        }
+        let _ = child.wait();
+        *state.port.lock().unwrap() = 0;
+        Ok(())
+    } else {
+        Err("MCP server 未在运行".into())
+    }
+}
+
+#[tauri::command]
+pub fn get_mcp_status(state: State<'_, McpState>) -> McpStatus {
+    let running = state.child.lock().unwrap().is_some();
+    let port = *state.port.lock().unwrap();
+    McpStatus { running, port }
+}
+
+

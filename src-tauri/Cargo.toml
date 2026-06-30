@@ -33,9 +33,4 @@ windows-sys = { version = "0.59", features = [
   "Win32_System_Threading"
 ] }
 
-[profile.release]
-codegen-units = 1
-lto = true
-opt-level = 3
-panic = "abort"
-strip = true
+

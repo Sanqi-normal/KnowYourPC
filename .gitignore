@@ -12,6 +12,12 @@ dist
 dist-ssr
 *.local
 
+# Cargo workspace target
+/target/
+
+# MCP binary staging for Tauri bundling
+/src-tauri/binaries/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

@@ -8,6 +8,8 @@
     "build": "tauri build",
     "dev:frontend": "vite --host 127.0.0.1",
     "build:frontend": "tsc --noEmit && vite build",
+    "build:mcp": "cargo build -p fastscan-mcp && node scripts/copy-mcp.cjs debug",
+    "build:mcp:release": "cargo build -p fastscan-mcp --release && node scripts/copy-mcp.cjs release",
     "preview": "vite preview"
   },
   "dependencies": {

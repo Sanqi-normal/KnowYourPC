@@ -45,6 +45,11 @@
           </div>
           <div id="statusText" class="status-text">就绪</div>
         </div>
+
+        <button id="mcpToggleBtn" class="mcp-toggle-btn" title="启动/停止 MCP 服务">
+          <span id="mcpIndicator" class="mcp-indicator-dot off">●</span>
+          <span id="mcpLabel">MCP</span>
+        </button>
       </header>
 
       <section id="summaryBar" class="summary-bar">
@@ -70,50 +75,53 @@
         </div>
       </section>
 
-      <main id="mainContent" class="main-content">
-        <section id="treePanel" class="pane tree-pane">
-          <div class="pane-header">
-            <span class="pane-title">文件树</span>
-            <div class="pane-header-right">
-              <span id="selectedPath" class="selected-path">未选择</span>
-              <button id="upButton" class="small-button" title="上一级">↑</button>
+      <div id="appBody" class="app-body">
+        <main id="mainContent" class="main-content">
+          <section id="treePanel" class="pane tree-pane">
+            <div class="pane-header">
+              <span class="pane-title">文件树</span>
+              <div class="pane-header-right">
+                <span id="selectedPath" class="selected-path">未选择</span>
+                <button id="upButton" class="small-button" title="上一级">↑</button>
+              </div>
             </div>
-          </div>
-          <div class="table-header">
-            <div>名称</div>
-            <div class="numeric">占用</div>
-            <div class="numeric">占比</div>
-            <div class="numeric">项目</div>
-          </div>
-          <div id="treeViewport" class="tree-viewport">
-            <div id="treeSpacer" class="tree-spacer">
-              <div id="treeRows" class="tree-rows"></div>
+            <div class="table-header">
+              <div>名称</div>
+              <div class="numeric">占用</div>
+              <div class="numeric">占比</div>
+              <div class="numeric">项目</div>
             </div>
-          </div>
-        </section>
-
-        <div id="splitter1" class="splitter splitter-v"></div>
-
-        <section id="vizPanel" class="pane viz-pane">
-          <div class="pane-header">
-            <span class="pane-title">Treemap</span>
-            <div class="pane-header-right">
-              <button id="zoomOutBtn" class="small-button" title="返回上级">←</button>
+            <div id="treeViewport" class="tree-viewport">
+              <div id="treeSpacer" class="tree-spacer">
+                <div id="treeRows" class="tree-rows"></div>
+              </div>
             </div>
-          </div>
-          <canvas id="treemapCanvas"></canvas>
-          <div id="treemapTooltip" class="treemap-tooltip hidden"></div>
-        </section>
+          </section>
 
-        <div id="splitter2" class="splitter splitter-v"></div>
+          <div id="splitter1" class="splitter splitter-v"></div>
 
-        <section id="extPanel" class="pane ext-pane">
-          <div class="pane-header">
-            <span class="pane-title">扩展名</span>
-          </div>
-          <div id="extList" class="ext-list"></div>
-        </section>
-      </main>
+          <section id="vizPanel" class="pane viz-pane">
+            <div class="pane-header">
+              <span class="pane-title">Treemap</span>
+              <div class="pane-header-right">
+                <button id="zoomOutBtn" class="small-button" title="返回上级">←</button>
+              </div>
+            </div>
+            <canvas id="treemapCanvas"></canvas>
+            <div id="treemapTooltip" class="treemap-tooltip hidden"></div>
+          </section>
+
+          <div id="splitter2" class="splitter splitter-v"></div>
+
+          <section id="extPanel" class="pane ext-pane">
+            <div class="pane-header">
+              <span class="pane-title">扩展名</span>
+            </div>
+            <div id="extList" class="ext-list"></div>
+          </section>
+        </main>
+
+      </div>
 
       <footer id="warnings" class="warnings"></footer>
     </div>

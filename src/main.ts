@@ -38,6 +38,7 @@ let selectedId = 0;
 let visibleRows: { id: number; depth: number }[] = [];
 let treemapRects: TreemapRect[] = [];
 let scanning = false;
+let mcpRunning = false;
 
 function qs<T extends HTMLElement>(sel: string): T {
   return document.querySelector<T>(sel)!;
@@ -71,6 +72,9 @@ const splitter1 = qs<HTMLDivElement>("#splitter1");
 const splitter2 = qs<HTMLDivElement>("#splitter2");
 const treePanel = qs<HTMLElement>("#treePanel");
 const extPanel = qs<HTMLElement>("#extPanel");
+const mcpToggleBtn = qs<HTMLButtonElement>("#mcpToggleBtn");
+const mcpIndicator = qs<HTMLSpanElement>("#mcpIndicator");
+const mcpLabel = qs<HTMLSpanElement>("#mcpLabel");
 const adminBanner = qs<HTMLDivElement>("#adminBanner");
 const restartAdminBtn = qs<HTMLButtonElement>("#restartAdminBtn");
 
@@ -102,13 +106,11 @@ async function checkAdmin() {
       adminBanner.classList.remove("hidden");
     }
   } catch {
-    // 忽略检查失败
   }
 }
 
 function wireEvents() {
   refreshVolumesButton.addEventListener("click", () => loadVolumes());
-
   scanButton.addEventListener("click", () => startScan());
 
   upButton.addEventListener("click", async () => {
@@ -322,14 +324,39 @@ function wireEvents() {
   });
 
   new ResizeObserver(() => renderTreemap()).observe(treemapCanvas);
+
+  mcpToggleBtn.addEventListener("click", toggleMcp);
 }
 
 function initSplitters() {
-  makeSplitter(splitter1, treePanel, null);
-  makeSplitter(splitter2, null, extPanel);
+  makeSplitter(splitter1, treePanel, null, 200, 600);
+  makeSplitter(splitter2, null, extPanel, 120, 400);
 }
 
-function makeSplitter(splitter: HTMLElement, left: HTMLElement | null, right: HTMLElement | null) {
+async function toggleMcp() {
+  try {
+    if (mcpRunning) {
+      await invoke("stop_mcp_server");
+      mcpRunning = false;
+      mcpIndicator.className = "mcp-indicator-dot off";
+      mcpLabel.textContent = "MCP";
+    } else {
+      mcpLabel.textContent = "启动中...";
+      mcpIndicator.className = "mcp-indicator-dot starting";
+      const port = await invoke<number>("start_mcp_server");
+      mcpRunning = true;
+      mcpIndicator.className = "mcp-indicator-dot on";
+      mcpLabel.textContent = `MCP :${port}`;
+    }
+  } catch (err) {
+    mcpRunning = false;
+    mcpIndicator.className = "mcp-indicator-dot error";
+    mcpLabel.textContent = "MCP 错误";
+    setStatus(`MCP: ${err}`);
+  }
+}
+
+function makeSplitter(splitter: HTMLElement, left: HTMLElement | null, right: HTMLElement | null, minR = 160, maxR = 500) {
   let dragging = false;
   let startX = 0;
   let startLeft = 0;
@@ -353,7 +380,7 @@ function makeSplitter(splitter: HTMLElement, left: HTMLElement | null, right: HT
       left.style.flex = `0 0 ${newW}px`;
     }
     if (right) {
-      const newW = Math.max(160, Math.min(500, startRight - dx));
+      const newW = Math.max(minR, Math.min(maxR, startRight - dx));
       right.style.flex = `0 0 ${newW}px`;
     }
   });
@@ -455,7 +482,6 @@ async function copyNodePath(nodeId: number) {
   try {
     await navigator.clipboard.writeText(path);
   } catch {
-    // fallback
   }
 }
 
@@ -465,7 +491,6 @@ async function copyNodeName(nodeId: number) {
   try {
     await navigator.clipboard.writeText(node.name);
   } catch {
-    // fallback
   }
 }
 
@@ -628,7 +653,6 @@ async function loadExtensionStats() {
     const stats = await invoke<ExtensionStat[]>("get_extension_stats");
     renderExtensionStats(stats);
   } catch {
-    // ignore
   }
 }
 

@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "fastscan": {
+      "command": "fastscan-mcp",
+      "args": []
+    }
+  }
+}
