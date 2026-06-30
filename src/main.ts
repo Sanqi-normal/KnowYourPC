@@ -270,6 +270,41 @@ function wireEvents() {
     }
   });
 
+  searchResults.addEventListener("contextmenu", async (event) => {
+    const target = event.target as HTMLElement;
+    const row = target.closest<HTMLElement>(".search-result-item");
+    if (!row) return;
+    const id = Number(row.dataset.id);
+    if (!Number.isInteger(id)) return;
+    event.preventDefault();
+    await ensureNodeInCache(id);
+    showContextMenu(event.clientX, event.clientY, id);
+  });
+
+  searchResults.addEventListener("mousemove", (event) => {
+    const target = event.target as HTMLElement;
+    const row = target.closest<HTMLElement>(".search-result-item");
+    if (!row) {
+      treemapTooltip.classList.add("hidden");
+      return;
+    }
+    const id = Number(row.dataset.id);
+    if (!Number.isInteger(id)) {
+      treemapTooltip.classList.add("hidden");
+      return;
+    }
+    const path = row.dataset.path ?? "";
+    const size = Number(row.dataset.size) || 0;
+    treemapTooltip.textContent = `${path}  ${formatBytes(size)}`;
+    treemapTooltip.style.left = `${event.clientX + 12}px`;
+    treemapTooltip.style.top = `${event.clientY + 12}px`;
+    treemapTooltip.classList.remove("hidden");
+  });
+
+  searchResults.addEventListener("mouseleave", () => {
+    treemapTooltip.classList.add("hidden");
+  });
+
   restartAdminBtn.addEventListener("click", async () => {
     restartAdminBtn.disabled = true;
     restartAdminBtn.textContent = "正在重启...";
@@ -371,6 +406,9 @@ function renderSearchResults(items: SearchResult[]) {
   for (const item of items.slice(0, 100)) {
     const row = document.createElement("div");
     row.className = "search-result-item";
+    row.dataset.id = String(item.id);
+    row.dataset.path = item.path;
+    row.dataset.size = String(item.totalAllocated);
     row.innerHTML = `
       <span class="search-result-icon">${item.isDir ? "\uD83D\uDCC1" : "\uD83D\uDCC4"}</span>
       <span class="search-result-name">${escapeHtml(item.name)}</span>
@@ -380,6 +418,7 @@ function renderSearchResults(items: SearchResult[]) {
     row.addEventListener("click", async () => {
       searchResults.classList.add("hidden");
       searchInput.blur();
+      await ensureNodeInCache(item.id);
       await selectNode(item.id, true, item.isDir);
     });
     row.addEventListener("mousedown", (e) => e.preventDefault());
