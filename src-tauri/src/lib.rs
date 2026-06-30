@@ -6,11 +6,12 @@ pub mod models;
 pub mod scanner;
 pub mod win;
 
-use models::NodeDto;
+use models::{HardwareInfo, NodeDto};
 
 pub struct AppState {
     pub tree: Mutex<Option<Vec<NodeDto>>>,
     pub root_path: Mutex<Option<String>>,
+    pub hardware_info: Mutex<Option<HardwareInfo>>,
 }
 
 impl Default for AppState {
@@ -18,6 +19,7 @@ impl Default for AppState {
         Self {
             tree: Mutex::new(None),
             root_path: Mutex::new(None),
+            hardware_info: Mutex::new(None),
         }
     }
 }
@@ -27,6 +29,13 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(AppState::default())
+        .setup(|app| {
+            let handle = app.handle().clone();
+            std::thread::spawn(move || {
+                crate::win::performance::start_perf_monitor(handle);
+            });
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             commands::list_volumes,
             commands::scan,
@@ -39,6 +48,7 @@ pub fn run() {
             commands::get_treemap_data,
             commands::get_node_with_ancestors,
             commands::search_files,
+            commands::get_hardware_info,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

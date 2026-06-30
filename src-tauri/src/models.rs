@@ -1,5 +1,110 @@
 use serde::{Deserialize, Serialize};
 
+// ── Hardware Info Types ──
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CpuInfo {
+    pub name: String,
+    pub architecture: String,
+    pub physical_cores: u32,
+    pub logical_threads: u32,
+    pub frequency_mhz: u32,
+    pub l1_cache_kb: Option<u32>,
+    pub l2_cache_kb: Option<u32>,
+    pub l3_cache_kb: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RamSlot {
+    pub slot: String,
+    pub capacity_gb: f64,
+    pub memory_type: String,
+    pub speed_mhz: u32,
+    pub manufacturer: String,
+    pub part_number: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RamInfo {
+    pub total_gb: f64,
+    pub slots: Vec<RamSlot>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GpuInfo {
+    pub name: String,
+    pub vram_mb: u64,
+    pub driver_version: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MotherboardInfo {
+    pub manufacturer: String,
+    pub product: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BiosInfo {
+    pub manufacturer: String,
+    pub version: String,
+    pub release_date: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BatteryInfo {
+    pub present: bool,
+    pub design_capacity_mwh: Option<u32>,
+    pub full_charge_capacity_mwh: Option<u32>,
+    pub cycle_count: Option<u32>,
+    pub health_percent: f64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HardwareInfo {
+    pub cpu: CpuInfo,
+    pub ram: RamInfo,
+    pub gpus: Vec<GpuInfo>,
+    pub motherboard: MotherboardInfo,
+    pub bios: BiosInfo,
+    pub battery: BatteryInfo,
+}
+
+// ── Performance Types ──
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProcessInfo {
+    pub pid: u32,
+    pub name: String,
+    pub cpu_percent: f32,
+    pub memory_mb: f64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PerfSnapshot {
+    pub cpu_percent: f32,
+    pub gpu_percent: f32,
+    pub memory_used_gb: f64,
+    pub memory_total_gb: f64,
+    pub memory_percent: f32,
+    pub disk_read_mbps: f64,
+    pub disk_write_mbps: f64,
+    pub net_recv_kbps: f64,
+    pub net_sent_kbps: f64,
+    pub top_processes: Vec<ProcessInfo>,
+}
+
+// ── Existing Types ──
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VolumeInfo {

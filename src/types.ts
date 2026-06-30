@@ -87,6 +87,91 @@ export interface SearchResult {
   extension: string | null;
 }
 
+// ── Hardware Info Types ──
+
+export interface CpuInfo {
+  name: string;
+  architecture: string;
+  physicalCores: number;
+  logicalThreads: number;
+  frequencyMhz: number;
+  l1CacheKb: number | null;
+  l2CacheKb: number | null;
+  l3CacheKb: number | null;
+}
+
+export interface RamSlot {
+  slot: string;
+  capacityGb: number;
+  memoryType: string;
+  speedMhz: number;
+  manufacturer: string;
+  partNumber: string;
+}
+
+export interface RamInfo {
+  totalGb: number;
+  slots: RamSlot[];
+}
+
+export interface GpuInfo {
+  name: string;
+  vramMb: number;
+  driverVersion: string;
+}
+
+export interface MotherboardInfo {
+  manufacturer: string;
+  product: string;
+}
+
+export interface BiosInfo {
+  manufacturer: string;
+  version: string;
+  releaseDate: string;
+}
+
+export interface BatteryInfo {
+  present: boolean;
+  designCapacityMwh: number | null;
+  fullChargeCapacityMwh: number | null;
+  cycleCount: number | null;
+  healthPercent: number;
+}
+
+export interface HardwareInfo {
+  cpu: CpuInfo;
+  ram: RamInfo;
+  gpus: GpuInfo[];
+  motherboard: MotherboardInfo;
+  bios: BiosInfo;
+  battery: BatteryInfo;
+}
+
+// ── Performance Types ──
+
+export interface ProcessInfo {
+  pid: number;
+  name: string;
+  cpuPercent: number;
+  memoryMb: number;
+}
+
+export interface PerfSnapshot {
+  cpuPercent: number;
+  gpuPercent: number;
+  memoryUsedGb: number;
+  memoryTotalGb: number;
+  memoryPercent: number;
+  diskReadMbps: number;
+  diskWriteMbps: number;
+  netRecvKbps: number;
+  netSentKbps: number;
+  topProcesses: ProcessInfo[];
+}
+
+// ── Existing Types ──
+
 export interface TreemapItem {
   id: number;
   size: number;

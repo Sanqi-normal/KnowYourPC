@@ -1,7 +1,10 @@
 use std::collections::HashMap;
 
 use crate::error::AppResult;
-use crate::models::{ChildNode, ExtensionStat, NodeDto, ScanOptions, ScanResult, SearchResult, TreemapNode, VolumeInfo};
+use crate::models::{
+    ChildNode, ExtensionStat, HardwareInfo, NodeDto, ScanOptions, ScanResult,
+    SearchResult, TreemapNode, VolumeInfo,
+};
 use crate::AppState;
 use tauri::State;
 
@@ -377,6 +380,17 @@ pub fn open_in_explorer(
     }
 
     Ok(())
+}
+
+#[tauri::command]
+pub fn get_hardware_info(state: State<'_, AppState>) -> Result<HardwareInfo, String> {
+    let mut guard = state.hardware_info.lock().unwrap();
+    if let Some(info) = guard.as_ref() {
+        return Ok(info.clone());
+    }
+    let info = crate::win::hardware::get_hardware_info()?;
+    *guard = Some(info.clone());
+    Ok(info)
 }
 
 #[tauri::command]
