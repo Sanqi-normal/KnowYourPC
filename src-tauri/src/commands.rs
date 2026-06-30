@@ -122,14 +122,33 @@ pub fn get_treemap_data(
     let root = nodes.get(root_id as usize)
         .ok_or_else(|| crate::error::AppError::Internal("根节点不存在".into()))?;
 
-    let mut remaining = max_items;
+    let total_size: u64 = root.children
+        .iter()
+        .filter_map(|id| nodes.get(*id as usize))
+        .map(|n| n.total_allocated)
+        .sum();
+
     let mut items: Vec<TreemapNode> = Vec::new();
 
     for &child_id in &root.children {
-        if remaining == 0 {
+        if items.len() >= 10000 {
             break;
         }
-        if let Some(child) = build_treemap_node(child_id, nodes, &mut remaining) {
+
+        let node = match nodes.get(child_id as usize) {
+            Some(n) if n.total_allocated > 0 => n,
+            _ => continue,
+        };
+
+        let budget = if total_size > 0 {
+            ((node.total_allocated as f64 / total_size as f64) * max_items as f64)
+                .max(1.0) as u32
+        } else {
+            1
+        };
+
+        let mut child_remaining = budget;
+        if let Some(child) = build_treemap_node(child_id, nodes, &mut child_remaining) {
             items.push(child);
         }
     }
@@ -144,7 +163,7 @@ fn build_treemap_node(
     remaining: &mut u32,
 ) -> Option<TreemapNode> {
     let node = nodes.get(id as usize)?;
-    if node.total_allocated <= 0 || *remaining == 0 {
+    if node.total_allocated <= 0 {
         return None;
     }
 
