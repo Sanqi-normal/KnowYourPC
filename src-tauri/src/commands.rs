@@ -156,6 +156,45 @@ pub fn get_treemap_data(
 }
 
 #[tauri::command]
+pub fn get_node_with_ancestors(
+    node_id: u32,
+    state: State<'_, AppState>,
+) -> AppResult<Vec<ChildNode>> {
+    let guard = state.tree.lock().unwrap();
+    let nodes = guard
+        .as_ref()
+        .ok_or_else(|| crate::error::AppError::Internal("尚未扫描".into()))?;
+
+    let mut result: Vec<ChildNode> = Vec::new();
+    let mut current = Some(node_id);
+
+    while let Some(id) = current {
+        if let Some(node) = nodes.get(id as usize) {
+            result.push(ChildNode {
+                id: node.id,
+                parent: node.parent,
+                name: node.name.clone(),
+                is_dir: node.is_dir,
+                size: node.size,
+                allocated: node.allocated,
+                total_size: node.total_size,
+                total_allocated: node.total_allocated,
+                child_count: node.children.len() as u32,
+                file_count: node.file_count,
+                dir_count: node.dir_count,
+                extension: node.extension.clone(),
+            });
+            current = node.parent;
+        } else {
+            break;
+        }
+    }
+
+    result.reverse();
+    Ok(result)
+}
+
+#[tauri::command]
 pub fn search_files(
     query: String,
     max_results: u32,

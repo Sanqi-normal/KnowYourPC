@@ -37,6 +37,7 @@ pub fn run() {
             commands::get_children,
             commands::get_node_path,
             commands::get_treemap_data,
+            commands::get_node_with_ancestors,
             commands::search_files,
         ])
         .run(tauri::generate_context!())

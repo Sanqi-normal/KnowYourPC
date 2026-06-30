@@ -156,34 +156,45 @@ function wireEvents() {
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
     const hit = hitTestTreemap(treemapRects, x, y);
-    if (hit != null && nodeCache.has(hit)) {
-      const hitNode = nodeCache.get(hit)!;
-      await selectNode(hit, true, hitNode.isDir);
+    if (hit != null) {
+      if (!nodeCache.has(hit)) await ensureNodeInCache(hit);
+      if (nodeCache.has(hit)) {
+        const hitNode = nodeCache.get(hit)!;
+        await selectNode(hit, true, hitNode.isDir);
+      }
     }
   });
 
-  treemapCanvas.addEventListener("contextmenu", (event) => {
+  treemapCanvas.addEventListener("contextmenu", async (event) => {
     const rect = treemapCanvas.getBoundingClientRect();
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
     const hit = hitTestTreemapNode(treemapRects, x, y);
-    if (hit && nodeCache.has(hit.id)) {
-      event.preventDefault();
-      showContextMenu(event.clientX, event.clientY, hit.id);
+    if (hit) {
+      if (!nodeCache.has(hit.id)) await ensureNodeInCache(hit.id);
+      if (nodeCache.has(hit.id)) {
+        event.preventDefault();
+        showContextMenu(event.clientX, event.clientY, hit.id);
+      }
     }
   });
 
-  treemapCanvas.addEventListener("mousemove", (event) => {
+  treemapCanvas.addEventListener("mousemove", async (event) => {
     const rect = treemapCanvas.getBoundingClientRect();
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
     const hit = hitTestTreemapNode(treemapRects, x, y);
-    if (hit && nodeCache.has(hit.id)) {
-      const path = buildNodePath(hit.id, nodeCache, selectedId);
-      treemapTooltip.textContent = `${path}  ${formatBytes(hit.item.size)}`;
-      treemapTooltip.style.left = `${event.clientX + 12}px`;
-      treemapTooltip.style.top = `${event.clientY + 12}px`;
-      treemapTooltip.classList.remove("hidden");
+    if (hit) {
+      if (!nodeCache.has(hit.id)) await ensureNodeInCache(hit.id);
+      if (nodeCache.has(hit.id)) {
+        const path = buildNodePath(hit.id, nodeCache, selectedId);
+        treemapTooltip.textContent = `${path}  ${formatBytes(hit.item.size)}`;
+        treemapTooltip.style.left = `${event.clientX + 12}px`;
+        treemapTooltip.style.top = `${event.clientY + 12}px`;
+        treemapTooltip.classList.remove("hidden");
+      } else {
+        treemapTooltip.classList.add("hidden");
+      }
     } else {
       treemapTooltip.classList.add("hidden");
     }
@@ -447,6 +458,36 @@ async function loadChildren(parentId: number): Promise<ChildNode[]> {
   }
   parentChildren.set(parentId, childIds);
   return children;
+}
+
+async function ensureNodeInCache(id: number) {
+  if (nodeCache.has(id)) return;
+  const ancestors = await invoke<ChildNode[]>("get_node_with_ancestors", { nodeId: id });
+  for (const node of ancestors) {
+    if (!nodeCache.has(node.id)) {
+      nodeCache.set(node.id, node);
+    }
+  }
+}
+
+async function ensureTreemapNodesInCache(rects: TreemapRect[]) {
+  const missing = new Set<number>();
+  for (const rect of rects) {
+    if (!nodeCache.has(rect.id)) missing.add(rect.id);
+  }
+  if (missing.size === 0) return;
+  const results = await Promise.all(
+    [...missing].map((id) =>
+      invoke<ChildNode[]>("get_node_with_ancestors", { nodeId: id }).catch(() => [] as ChildNode[])
+    )
+  );
+  for (const nodes of results) {
+    for (const node of nodes) {
+      if (!nodeCache.has(node.id)) {
+        nodeCache.set(node.id, node);
+      }
+    }
+  }
 }
 
 async function startScan() {
@@ -733,6 +774,7 @@ async function renderTreemap() {
       maxItems: 3000,
     });
     treemapRects = drawTreemap(treemapCanvas, items);
+    ensureTreemapNodesInCache(treemapRects);
   } catch {
     treemapRects = [];
   }
