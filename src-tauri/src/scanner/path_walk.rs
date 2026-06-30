@@ -1,5 +1,4 @@
 use std::{
-    collections::HashMap,
     path::{Path, PathBuf},
     time::Instant,
 };
@@ -37,11 +36,10 @@ pub fn scan_path(app: &AppHandle, root: &str) -> Result<ScanResult> {
     let cluster_size = crate::win::volume::cluster_size_for_root(root).max(1);
     let mut warnings = Vec::new();
 
-    let mut nodes = Vec::new();
+    let mut nodes = Vec::with_capacity(65536);
     nodes.push(TreeNode::root(display_root(&root_path)));
 
-    let mut directory_ids = HashMap::<PathBuf, u32>::new();
-    directory_ids.insert(root_path.clone(), 0);
+    let mut parent_at_depth: Vec<u32> = vec![0];
 
     let mut processed = 0u64;
     let mut last_emit = Instant::now();
@@ -61,32 +59,37 @@ pub fn scan_path(app: &AppHandle, root: &str) -> Result<ScanResult> {
 
         processed += 1;
 
-        let metadata = match entry.metadata() {
-            Ok(metadata) => metadata,
-            Err(error) => {
-                push_warning(
-                    &mut warnings,
-                    format!("无法读取元数据 {}: {error}", entry.path().display()),
-                );
-                continue;
+        let depth = entry.depth();
+        if parent_at_depth.len() <= depth {
+            parent_at_depth.resize(depth + 1, 0);
+        }
+        let parent_id = parent_at_depth[depth - 1];
+
+        let ft_is_dir = entry.file_type().is_dir();
+
+        let metadata = if !ft_is_dir {
+            match entry.metadata() {
+                Ok(m) => Some(m),
+                Err(error) => {
+                    push_warning(
+                        &mut warnings,
+                        format!("无法读取元数据 {}: {error}", entry.path().display()),
+                    );
+                    continue;
+                }
             }
+        } else {
+            None
         };
 
-        let is_dir = metadata.is_dir();
-        let is_file = metadata.is_file();
-
-        let size = if is_file { metadata.len() } else { 0 };
+        let is_dir = ft_is_dir || metadata.as_ref().map(|m| m.is_dir()).unwrap_or(false);
+        let is_file = metadata.as_ref().map(|m| m.is_file()).unwrap_or(false);
+        let size = metadata.as_ref().map(|m| m.len()).unwrap_or(0);
         let allocated = if is_file {
             approximate_allocated(size, cluster_size)
         } else {
             0
         };
-
-        let parent_id = entry
-            .path()
-            .parent()
-            .and_then(|parent| directory_ids.get(parent).copied())
-            .unwrap_or(0);
 
         let id = nodes.len() as u32;
         let name = entry.file_name().to_string_lossy().to_string();
@@ -103,10 +106,10 @@ pub fn scan_path(app: &AppHandle, root: &str) -> Result<ScanResult> {
         nodes[parent_id as usize].children.push(id);
 
         if is_dir {
-            directory_ids.insert(entry.path().to_path_buf(), id);
+            parent_at_depth[depth] = id;
         }
 
-        if last_emit.elapsed().as_millis() > PROGRESS_INTERVAL_MS as u128 {
+        if (processed & 4095) == 0 && last_emit.elapsed().as_millis() > PROGRESS_INTERVAL_MS as u128 {
             emit_progress(
                 app,
                 "walk.scan",
