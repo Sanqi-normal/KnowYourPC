@@ -88,12 +88,14 @@ pub struct SearchResult {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct TreemapItem {
+pub struct TreemapNode {
     pub id: u32,
     pub size: u64,
     pub name: String,
     pub is_dir: bool,
     pub extension: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub children: Vec<TreemapNode>,
 }
 
 #[derive(Debug, Clone, Serialize)]

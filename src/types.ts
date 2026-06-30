@@ -93,6 +93,7 @@ export interface TreemapItem {
   name: string;
   isDir: boolean;
   extension: string | null;
+  children?: TreemapItem[];
 }
 
 export type ExtCategory = "document" | "image" | "video" | "audio" | "archive" | "code" | "executable" | "other";
@@ -160,14 +161,14 @@ export function extCategory(ext: string | null): ExtCategory {
 }
 
 export const CATEGORY_COLORS: Record<ExtCategory, string> = {
-  document: "hsl(210, 60%, 50%)",
-  image: "hsl(120, 55%, 45%)",
-  video: "hsl(0, 60%, 50%)",
-  audio: "hsl(30, 70%, 50%)",
-  archive: "hsl(280, 50%, 50%)",
-  code: "hsl(190, 60%, 45%)",
-  executable: "hsl(350, 55%, 50%)",
-  other: "hsl(0, 0%, 45%)",
+  document: "hsl(215, 75%, 55%)",
+  image: "hsl(130, 70%, 50%)",
+  video: "hsl(345, 80%, 55%)",
+  audio: "hsl(40, 85%, 55%)",
+  archive: "hsl(275, 65%, 55%)",
+  code: "hsl(185, 70%, 50%)",
+  executable: "hsl(0, 70%, 55%)",
+  other: "hsl(220, 10%, 55%)",
 };
 
 export const CATEGORY_LABELS: Record<ExtCategory, string> = {
@@ -180,3 +181,27 @@ export const CATEGORY_LABELS: Record<ExtCategory, string> = {
   executable: "可执行文件",
   other: "其他",
 };
+
+export const DIR_COLORS: string[] = [
+  "hsl(0, 30%, 22%)",
+  "hsl(25, 30%, 22%)",
+  "hsl(50, 25%, 20%)",
+  "hsl(140, 25%, 20%)",
+  "hsl(175, 25%, 20%)",
+  "hsl(210, 30%, 22%)",
+  "hsl(240, 25%, 22%)",
+  "hsl(280, 25%, 22%)",
+  "hsl(320, 25%, 22%)",
+  "hsl(10, 25%, 20%)",
+  "hsl(45, 20%, 18%)",
+  "hsl(195, 25%, 20%)",
+];
+
+export function dirColor(name: string): string {
+  let hash = 2166136261;
+  for (let i = 0; i < name.length; i += 1) {
+    hash ^= name.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return DIR_COLORS[Math.abs(hash) % DIR_COLORS.length];
+}

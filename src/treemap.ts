@@ -1,5 +1,5 @@
 import type { TreemapItem, ChildNode } from "./types";
-import { extCategory, CATEGORY_COLORS } from "./types";
+import { dirColor } from "./types";
 import { formatBytes } from "./format";
 
 export interface TreemapRect {
@@ -19,7 +19,10 @@ interface Bounds {
   h: number;
 }
 
-const MAX_VISIBLE = 3000;
+const MIN_PX = 3;
+const DIR_PAD = 1;
+const DIR_HEADER_H = 14;
+const MAX_DEPTH = 20;
 
 export function drawTreemap(
   canvas: HTMLCanvasElement,
@@ -48,29 +51,60 @@ export function drawTreemap(
     return [];
   }
 
-  const layoutItems = items.slice(0, MAX_VISIBLE);
-
-  if (layoutItems.length === 0) {
-    drawEmpty(ctx, width, height, "无可视化数据");
-    return [];
-  }
-
-  const total = layoutItems.reduce((s, i) => s + i.size, 0);
+  const total = items.reduce((s, i) => s + i.size, 0);
   if (total <= 0) {
     drawEmpty(ctx, width, height, "总大小为 0");
     return [];
   }
 
   const rects: TreemapRect[] = [];
-
   const inset = 2;
-  squarify(layoutItems, { x: inset, y: inset, w: width - inset * 2, h: height - inset * 2 }, total, 0, rects);
-
-  for (const rect of rects) {
-    drawRect(ctx, rect);
-  }
+  drawLevel(ctx, items, { x: inset, y: inset, w: width - inset * 2, h: height - inset * 2 }, total, 0, rects);
 
   return rects;
+}
+
+function drawLevel(
+  ctx: CanvasRenderingContext2D,
+  items: TreemapItem[],
+  bounds: Bounds,
+  total: number,
+  depth: number,
+  out: TreemapRect[],
+) {
+  if (depth > MAX_DEPTH || items.length === 0 || bounds.w <= 0 || bounds.h <= 0 || total <= 0) return;
+
+  const levelTotal = items.reduce((s, i) => s + i.size, 0);
+  if (levelTotal <= 0) return;
+
+  const levelRects: TreemapRect[] = [];
+  squarify(items, bounds, levelTotal, depth, levelRects);
+
+  for (const rect of levelRects) {
+    const item = rect.item;
+    if (item.isDir && item.children && item.children.length > 0) {
+      drawDirBackground(ctx, rect);
+      out.push(rect);
+
+      const headerH = rect.h > DIR_HEADER_H * 2 ? DIR_HEADER_H : 0;
+      const pad = DIR_PAD;
+      const innerX = rect.x + pad;
+      const innerY = rect.y + headerH;
+      const innerW = Math.max(0, rect.w - pad * 2);
+      const innerH = Math.max(0, rect.h - headerH - pad);
+
+      if (innerW >= MIN_PX * 3 && innerH >= MIN_PX * 3) {
+        const childTotal = item.children.reduce((s, c) => s + c.size, 0);
+        drawLevel(ctx, item.children, { x: innerX, y: innerY, w: innerW, h: innerH }, childTotal, depth + 1, out);
+      }
+    } else if (item.isDir) {
+      drawDirBackground(ctx, rect);
+      out.push(rect);
+    } else {
+      drawFileRect(ctx, rect);
+      out.push(rect);
+    }
+  }
 }
 
 function squarify(
@@ -171,19 +205,21 @@ function worstRatioItems(
   );
 }
 
-function categoryColorFor(ext: string | null, isDir: boolean): string {
-  if (isDir) {
-    return CATEGORY_COLORS.other;
+function fileColorFor(ext: string | null): string {
+  const key = ext ?? "(无)";
+  let hash = 2166136261;
+  for (let i = 0; i < key.length; i++) {
+    hash ^= key.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
   }
-  const cat = extCategory(ext);
-  return CATEGORY_COLORS[cat];
+  const hue = Math.abs(hash) % 360;
+  return `hsl(${hue},55%,50%)`;
 }
 
-function drawRect(ctx: CanvasRenderingContext2D, rect: TreemapRect) {
+function drawFileRect(ctx: CanvasRenderingContext2D, rect: TreemapRect) {
   if (rect.w <= 0 || rect.h <= 0) return;
 
-  const item = rect.item;
-  const color = categoryColorFor(item.extension, item.isDir);
+  const color = fileColorFor(rect.item.extension);
 
   ctx.fillStyle = color;
   ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
@@ -201,15 +237,43 @@ function drawRect(ctx: CanvasRenderingContext2D, rect: TreemapRect) {
 
   ctx.fillStyle = "rgba(255,255,255,0.9)";
   ctx.font = "bold 11px system-ui, -apple-system, sans-serif";
-  ctx.fillText(clipText(ctx, item.name, rect.w - 8), rect.x + 3, rect.y + 13);
+  ctx.fillText(clipText(ctx, rect.item.name, rect.w - 8), rect.x + 3, rect.y + 13);
 
   if (rect.h >= 34) {
     ctx.fillStyle = "rgba(255,255,255,0.65)";
     ctx.font = "10px system-ui, -apple-system, sans-serif";
-    ctx.fillText(formatBytes(item.size), rect.x + 3, rect.y + 26);
+    ctx.fillText(formatBytes(rect.item.size), rect.x + 3, rect.y + 26);
   }
 
   ctx.restore();
+}
+
+function drawDirBackground(ctx: CanvasRenderingContext2D, rect: TreemapRect) {
+  if (rect.w <= 0 || rect.h <= 0) return;
+
+  const color = dirColor(rect.item.name);
+  ctx.fillStyle = color;
+  ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+
+  const headerH = rect.h > DIR_HEADER_H * 2 ? DIR_HEADER_H : 0;
+  if (headerH > 0) {
+    ctx.fillStyle = lightenHSL(color, 25);
+    ctx.fillRect(rect.x, rect.y, rect.w, headerH);
+
+    ctx.fillStyle = "rgba(255,255,255,0.9)";
+    ctx.font = "bold 11px system-ui, -apple-system, sans-serif";
+    ctx.fillText(clipText(ctx, rect.item.name, rect.w - 8), rect.x + 4, rect.y + headerH - 3);
+  }
+
+  ctx.strokeStyle = lightenHSL(color, 35);
+  ctx.lineWidth = 1;
+  ctx.strokeRect(rect.x + 0.5, rect.y + 0.5, rect.w - 1, rect.h - 1);
+}
+
+function lightenHSL(hsl: string, amount: number): string {
+  const m = hsl.match(/^hsl\((\d+),\s*(\d+)%,\s*(\d+)%\)$/);
+  if (!m) return hsl;
+  return `hsl(${m[1]}, ${m[2]}%, ${Math.min(100, parseInt(m[3]) + amount)}%)`;
 }
 
 function drawEmpty(

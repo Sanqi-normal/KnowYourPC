@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::error::AppResult;
-use crate::models::{ChildNode, ExtensionStat, ScanOptions, ScanResult, SearchResult, TreemapItem, VolumeInfo};
+use crate::models::{ChildNode, ExtensionStat, NodeDto, ScanOptions, ScanResult, SearchResult, TreemapNode, VolumeInfo};
 use crate::AppState;
 use tauri::State;
 
@@ -113,7 +113,7 @@ pub fn get_treemap_data(
     root_id: u32,
     max_items: u32,
     state: State<'_, AppState>,
-) -> AppResult<Vec<TreemapItem>> {
+) -> AppResult<Vec<TreemapNode>> {
     let guard = state.tree.lock().unwrap();
     let nodes = guard
         .as_ref()
@@ -122,37 +122,69 @@ pub fn get_treemap_data(
     let root = nodes.get(root_id as usize)
         .ok_or_else(|| crate::error::AppError::Internal("根节点不存在".into()))?;
 
-    let mut items: Vec<TreemapItem> = Vec::new();
-    let mut stack: Vec<u32> = root.children.clone();
+    let mut remaining = max_items;
+    let mut items: Vec<TreemapNode> = Vec::new();
 
-    while let Some(id) = stack.pop() {
-        if items.len() >= max_items as usize {
+    for &child_id in &root.children {
+        if remaining == 0 {
             break;
         }
-        if let Some(node) = nodes.get(id as usize) {
-            if node.total_allocated <= 0 {
-                continue;
-            }
-            if node.is_dir && !node.children.is_empty() {
-                stack.extend(node.children.iter().rev().copied());
-            } else {
-                items.push(TreemapItem {
-                    id: node.id,
-                    size: node.total_allocated,
-                    name: node.name.clone(),
-                    is_dir: node.is_dir,
-                    extension: node.extension.clone(),
-                });
-            }
+        if let Some(child) = build_treemap_node(child_id, nodes, &mut remaining) {
+            items.push(child);
         }
     }
 
     items.sort_by(|a, b| b.size.cmp(&a.size));
-    if items.len() > max_items as usize {
-        items.truncate(max_items as usize);
+    Ok(items)
+}
+
+fn build_treemap_node(
+    id: u32,
+    nodes: &[NodeDto],
+    remaining: &mut u32,
+) -> Option<TreemapNode> {
+    let node = nodes.get(id as usize)?;
+    if node.total_allocated <= 0 || *remaining == 0 {
+        return None;
     }
 
-    Ok(items)
+    if node.is_dir && !node.children.is_empty() {
+        let mut children: Vec<TreemapNode> = Vec::new();
+        for &child_id in &node.children {
+            if *remaining == 0 {
+                break;
+            }
+            if let Some(child) = build_treemap_node(child_id, nodes, remaining) {
+                children.push(child);
+            }
+        }
+        children.sort_by(|a, b| b.size.cmp(&a.size));
+
+        *remaining = remaining.saturating_sub(1);
+
+        Some(TreemapNode {
+            id: node.id,
+            size: node.total_allocated,
+            name: node.name.clone(),
+            is_dir: true,
+            extension: None,
+            children,
+        })
+    } else {
+        if *remaining == 0 {
+            return None;
+        }
+        *remaining -= 1;
+
+        Some(TreemapNode {
+            id: node.id,
+            size: node.total_allocated,
+            name: node.name.clone(),
+            is_dir: node.is_dir,
+            extension: node.extension.clone(),
+            children: Vec::new(),
+        })
+    }
 }
 
 #[tauri::command]
