@@ -64,7 +64,6 @@ const treemapCanvas = qs<HTMLCanvasElement>("#treemapCanvas");
 const warningsEl = qs<HTMLDivElement>("#warnings");
 const extList = qs<HTMLDivElement>("#extList");
 const contextMenu = qs<HTMLDivElement>("#contextMenu");
-const ctxExpandTreemap = qs<HTMLDivElement>("#ctxExpandTreemap");
 const ctxOpen = qs<HTMLDivElement>("#ctxOpen");
 const ctxCopyPath = qs<HTMLDivElement>("#ctxCopyPath");
 const ctxCopyName = qs<HTMLDivElement>("#ctxCopyName");
@@ -139,6 +138,30 @@ function wireEvents() {
       return;
     }
     await selectNode(id, false, false);
+  });
+
+  treeRows.addEventListener("mousemove", (event) => {
+    const target = event.target as HTMLElement;
+    const row = target.closest<HTMLElement>(".tree-row");
+    if (!row) {
+      treemapTooltip.classList.add("hidden");
+      return;
+    }
+    const id = Number(row.dataset.id);
+    if (!Number.isInteger(id) || !nodeCache.has(id)) {
+      treemapTooltip.classList.add("hidden");
+      return;
+    }
+    const node = nodeCache.get(id)!;
+    const path = buildNodePath(id, nodeCache, 0);
+    treemapTooltip.textContent = `${path}  ${formatBytes(node.totalAllocated)}`;
+    treemapTooltip.style.left = `${event.clientX + 12}px`;
+    treemapTooltip.style.top = `${event.clientY + 12}px`;
+    treemapTooltip.classList.remove("hidden");
+  });
+
+  treeRows.addEventListener("mouseleave", () => {
+    treemapTooltip.classList.add("hidden");
   });
 
   treeRows.addEventListener("contextmenu", (event) => {
@@ -223,16 +246,6 @@ function wireEvents() {
   ctxCopyName.addEventListener("click", () => {
     if (contextMenuId != null) {
       copyNodeName(contextMenuId);
-    }
-    hideContextMenu();
-  });
-
-  ctxExpandTreemap.addEventListener("click", async () => {
-    if (contextMenuId != null) {
-      const node = nodeCache.get(contextMenuId);
-      if (node && node.isDir) {
-        await selectNode(contextMenuId, true, true);
-      }
     }
     hideContextMenu();
   });
@@ -393,8 +406,8 @@ async function openInExplorer(nodeId: number) {
   const path = await nodePath(nodeId);
   try {
     await invoke("open_in_explorer", { path });
-  } catch {
-    // fallback
+  } catch (err) {
+    setStatus(`打开失败: ${err}`);
   }
 }
 
@@ -678,11 +691,17 @@ function renderRows() {
 
     nameCell.append(twisty, icon, nameText);
 
+    const parentNode = node.parent != null ? nodeCache.get(node.parent) : null;
+    const parentTotal = parentNode ? parentNode.totalAllocated : result?.totalAllocated;
+    const pct = parentTotal ? (node.totalAllocated / parentTotal) * 100 : 0;
+    const pctCell = document.createElement("div");
+    pctCell.className = "cell pct-cell";
+    pctCell.innerHTML = `<div class="pct-bar"><div class="pct-bar-fill" style="width:${pct}%"></div><span class="pct-bar-label">${formatPercent(pct)}</span></div>`;
+
     row.append(
       nameCell,
       numericCell(formatBytes(node.totalAllocated)),
-      numericCell(formatBytes(node.totalSize)),
-      numericCell(percentOfRoot(node)),
+      pctCell,
       numericCell(formatNumber(node.fileCount + node.dirCount))
     );
 
@@ -697,12 +716,6 @@ function numericCell(text: string): HTMLDivElement {
   cell.className = "cell numeric";
   cell.textContent = text;
   return cell;
-}
-
-function percentOfRoot(node: ChildNode): string {
-  const total = result?.totalAllocated ?? 0;
-  if (total <= 0) return "—";
-  return formatPercent((node.totalAllocated / total) * 100);
 }
 
 async function toggleExpanded(id: number) {

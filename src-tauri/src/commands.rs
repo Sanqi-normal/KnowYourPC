@@ -334,27 +334,48 @@ pub fn open_in_explorer(
     path: String,
     state: State<'_, AppState>,
 ) -> AppResult<()> {
-    let resolved = std::fs::canonicalize(&path)
-        .map_err(|_| crate::error::AppError::Win("路径无效".into()))?;
-
     let guard = state.root_path.lock().unwrap();
     let root = guard
         .as_deref()
         .ok_or_else(|| crate::error::AppError::Internal("尚未扫描".into()))?;
 
     let root_path = std::path::Path::new(root);
-    if !resolved.starts_with(root_path) {
+    let path_obj = std::path::Path::new(&path);
+    if !path_obj.starts_with(root_path) {
         return Err(crate::error::AppError::Win(
             "路径不在当前扫描卷范围内".into(),
         ));
     }
     drop(guard);
 
-    let parent_path = resolved
-        .parent()
-        .unwrap_or(&resolved);
-    tauri_plugin_opener::open_path(parent_path, None::<&str>)
-        .map_err(|e| crate::error::AppError::Win(e.to_string()))?;
+    #[cfg(windows)]
+    {
+        // Drive root "C:\" → open directly; otherwise /select, to highlight
+        if path.ends_with(":\\") {
+            std::process::Command::new("explorer")
+                .arg(&path)
+                .spawn()
+                .map_err(|e| crate::error::AppError::Win(e.to_string()))?;
+        } else {
+            std::process::Command::new("explorer")
+                .arg("/select,")
+                .arg(&path)
+                .spawn()
+                .map_err(|e| crate::error::AppError::Win(e.to_string()))?;
+        }
+    }
+
+    #[cfg(not(windows))]
+    {
+        let open_path = if path_obj.is_dir() {
+            path_obj.to_path_buf()
+        } else {
+            path_obj.parent().unwrap_or(path_obj).to_path_buf()
+        };
+        tauri_plugin_opener::open_path(&open_path, None::<&str>)
+            .map_err(|e| crate::error::AppError::Win(e.to_string()))?;
+    }
+
     Ok(())
 }
 

@@ -263,6 +263,14 @@ function drawDirBackground(ctx: CanvasRenderingContext2D, rect: TreemapRect) {
     ctx.fillStyle = "rgba(255,255,255,0.9)";
     ctx.font = "bold 11px system-ui, -apple-system, sans-serif";
     ctx.fillText(clipText(ctx, rect.item.name, rect.w - 8), rect.x + 4, rect.y + headerH - 3);
+
+    ctx.fillStyle = "rgba(255,255,255,0.6)";
+    ctx.font = "10px system-ui, -apple-system, sans-serif";
+    const sizeLabel = formatBytes(rect.item.size);
+    const sizeW = ctx.measureText(sizeLabel).width;
+    if (sizeW + 4 < rect.w - ctx.measureText(rect.item.name).width - 8) {
+      ctx.fillText(sizeLabel, rect.x + rect.w - 4 - sizeW, rect.y + headerH - 3);
+    }
   }
 
   ctx.strokeStyle = lightenHSL(color, 35);
