@@ -1,5 +1,7 @@
-use std::time::Instant;
+use std::collections::VecDeque;
+use std::sync::atomic::{AtomicU64, Ordering};
 
+use rayon::prelude::*;
 use tauri::AppHandle;
 
 use crate::models::NodeDto;
@@ -78,13 +80,12 @@ pub fn finalize_tree_in_place(app: &AppHandle, nodes: &mut Vec<TreeNode>) {
 
     let len = nodes.len();
 
-    for index in 0..len {
-        nodes[index]
-            .children
-            .retain(|child| (*child as usize) < len && *child != index as u32);
-    }
+    nodes.par_iter_mut().enumerate().for_each(|(i, node)| {
+        node.children
+            .retain(|child| (*child as usize) < len && *child != i as u32);
+    });
 
-    aggregate_from_root(app, nodes);
+    parallel_aggregate(nodes);
 
     let totals: Vec<u64> = nodes.iter().map(|node| node.total_allocated).collect();
     let names: Vec<String> = nodes
@@ -93,104 +94,123 @@ pub fn finalize_tree_in_place(app: &AppHandle, nodes: &mut Vec<TreeNode>) {
         .collect();
 
     let count = nodes.len();
-    for (i, node) in nodes.iter_mut().enumerate() {
+    nodes.par_iter_mut().enumerate().for_each(|(_i, node)| {
         node.children.sort_by(|a, b| {
             let ai = *a as usize;
             let bi = *b as usize;
+            if ai >= count || bi >= count {
+                return std::cmp::Ordering::Equal;
+            }
             totals[bi]
                 .cmp(&totals[ai])
                 .then_with(|| names[ai].cmp(&names[bi]))
         });
+    });
 
-        if i % 10000 == 0 && i > 0 {
-            emit_progress(
-                app,
-                "ntfs.aggregate",
-                1 + (i * 100 / count.max(1)) as u64,
-                Some(100),
-                format!("正在排序子节点 {}/{}", i, count),
-            );
-        }
-    }
+    emit_progress(
+        app,
+        "ntfs.aggregate",
+        100,
+        Some(100),
+        format!("聚合完成 ({} 个节点)", count),
+    );
 }
 
-fn aggregate_from_root(app: &AppHandle, nodes: &mut [TreeNode]) {
+fn parallel_aggregate(nodes: &mut [TreeNode]) {
     let len = nodes.len();
-    let mut state = vec![0u8; len];
-    let mut stack = vec![(0u32, false)];
-    let mut processed = 0u64;
-    let mut last_emit = Instant::now();
+    if len <= 1 {
+        return;
+    }
 
-    while let Some((id, exiting)) = stack.pop() {
-        let index = id as usize;
-        if index >= len {
-            continue;
-        }
+    let mut depth = vec![usize::MAX; len];
+    depth[0] = 0;
+    let mut queue = VecDeque::new();
+    queue.push_back(0usize);
 
-        if exiting {
-            let mut total_size = nodes[index].size;
-            let mut total_allocated = nodes[index].allocated;
-            let mut file_count: u64 = if nodes[index].is_dir { 0 } else { 1 };
-            let mut dir_count: u64 = if index == 0 {
-                0
-            } else if nodes[index].is_dir {
-                1
-            } else {
-                0
-            };
-
-            for child in nodes[index].children.clone() {
-                let child_index = child as usize;
-                if child_index >= len || state[child_index] != 2 {
-                    continue;
-                }
-
-                total_size = total_size.saturating_add(nodes[child_index].total_size);
-                total_allocated =
-                    total_allocated.saturating_add(nodes[child_index].total_allocated);
-                file_count = file_count.saturating_add(nodes[child_index].file_count);
-                dir_count = dir_count.saturating_add(nodes[child_index].dir_count);
+    while let Some(idx) = queue.pop_front() {
+        for &child in &nodes[idx].children {
+            let ci = child as usize;
+            if ci < len && depth[ci] == usize::MAX {
+                depth[ci] = depth[idx] + 1;
+                queue.push_back(ci);
             }
-
-            nodes[index].total_size = total_size;
-            nodes[index].total_allocated = total_allocated;
-            nodes[index].file_count = file_count;
-            nodes[index].dir_count = dir_count;
-            state[index] = 2;
-            continue;
-        }
-
-        if state[index] != 0 {
-            continue;
-        }
-
-        state[index] = 1;
-        stack.push((id, true));
-
-        for child in nodes[index].children.clone().into_iter().rev() {
-            let child_index = child as usize;
-            if child_index < len && state[child_index] == 0 {
-                stack.push((child, false));
-            }
-        }
-
-        processed += 1;
-        if processed % 10000 == 0 && last_emit.elapsed().as_millis() > 100 {
-            emit_progress(
-                app,
-                "ntfs.aggregate",
-                processed,
-                Some(2).filter(|_| processed > 0),
-                format!("正在聚合目录大小... ({} / {} 节点)", processed, len),
-            );
-            last_emit = Instant::now();
         }
     }
+
+    let max_depth = depth
+        .iter()
+        .filter(|&&d| d != usize::MAX)
+        .max()
+        .copied()
+        .unwrap_or(0);
+
+    if max_depth == 0 {
+        nodes[0].total_size = nodes.iter().skip(1).map(|n| n.size).sum();
+        nodes[0].total_allocated = nodes.iter().skip(1).map(|n| n.allocated).sum();
+        nodes[0].file_count = nodes.iter().skip(1).filter(|n| !n.is_dir).count() as u64;
+        nodes[0].dir_count = nodes.iter().skip(1).filter(|n| n.is_dir).count() as u64;
+        return;
+    }
+
+    let mut by_depth: Vec<Vec<usize>> = vec![Vec::new(); max_depth + 1];
+    for (i, &d) in depth.iter().enumerate() {
+        if d != usize::MAX {
+            by_depth[d].push(i);
+        }
+    }
+
+    let total_sizes: Vec<AtomicU64> = nodes.iter().map(|n| AtomicU64::new(n.size)).collect();
+    let total_allocated: Vec<AtomicU64> =
+        nodes.iter().map(|n| AtomicU64::new(n.allocated)).collect();
+    let file_counts: Vec<AtomicU64> = nodes
+        .iter()
+        .map(|n| AtomicU64::new(if n.is_dir { 0 } else { 1 }))
+        .collect();
+    let dir_counts: Vec<AtomicU64> = nodes
+        .iter()
+        .enumerate()
+        .map(|(i, n)| {
+            if i == 0 {
+                AtomicU64::new(0)
+            } else if n.is_dir {
+                AtomicU64::new(1)
+            } else {
+                AtomicU64::new(0)
+            }
+        })
+        .collect();
+
+    let parents: Vec<Option<u32>> = nodes.iter().map(|n| n.parent).collect();
+
+    for d in (1..=max_depth).rev() {
+        by_depth[d].par_iter().for_each(|&idx| {
+            let parent_idx = match parents[idx] {
+                Some(p) if (p as usize) < len && p as usize != idx => p as usize,
+                _ => return,
+            };
+
+            total_sizes[parent_idx]
+                .fetch_add(total_sizes[idx].load(Ordering::Relaxed), Ordering::Relaxed);
+            total_allocated[parent_idx]
+                .fetch_add(total_allocated[idx].load(Ordering::Relaxed), Ordering::Relaxed);
+            file_counts[parent_idx]
+                .fetch_add(file_counts[idx].load(Ordering::Relaxed), Ordering::Relaxed);
+            dir_counts[parent_idx]
+                .fetch_add(dir_counts[idx].load(Ordering::Relaxed), Ordering::Relaxed);
+        });
+    }
+
+    nodes.par_iter_mut().enumerate().for_each(|(i, node)| {
+        node.total_size = total_sizes[i].load(Ordering::Relaxed);
+        node.total_allocated = total_allocated[i].load(Ordering::Relaxed);
+        node.file_count = file_counts[i].load(Ordering::Relaxed);
+        node.dir_count = dir_counts[i].load(Ordering::Relaxed);
+    });
 }
 
 fn tree_to_node_dtos(nodes: Vec<TreeNode>) -> Vec<NodeDto> {
     nodes
-        .into_iter()
+        .into_par_iter()
         .map(|node| NodeDto {
             id: node.id,
             parent: node.parent,
