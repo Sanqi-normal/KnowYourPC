@@ -575,7 +575,7 @@ pub async fn start_mcp_server(
     let binary = get_mcp_binary()?;
 
     let mut cmd = std::process::Command::new(&binary);
-    cmd.arg("--http")
+    cmd.arg("--no-elevate")
         .arg("--port")
         .arg(port.to_string())
         .stdout(std::process::Stdio::piped())
@@ -598,9 +598,11 @@ pub async fn start_mcp_server(
     }
 
     if !healthy {
-        let _ = std::process::Command::new("taskkill")
-            .args(&["/PID", &process.id().to_string(), "/F"])
-            .output();
+        let mut cmd = std::process::Command::new("taskkill");
+        cmd.args(&["/PID", &process.id().to_string(), "/F"]);
+        #[cfg(windows)]
+        cmd.creation_flags(0x08000000);
+        let _ = cmd.output();
         return Err("MCP server 启动超时 (3s)".into());
     }
 
@@ -622,9 +624,10 @@ pub async fn stop_mcp_server(
     if let Some(mut child) = child_guard.take() {
         #[cfg(windows)]
         {
-            let _ = std::process::Command::new("taskkill")
-                .args(&["/PID", &child.id().to_string(), "/F"])
-                .output();
+            let mut cmd = std::process::Command::new("taskkill");
+            cmd.args(&["/PID", &child.id().to_string(), "/F"]);
+            cmd.creation_flags(0x08000000);
+            let _ = cmd.output();
         }
         #[cfg(not(windows))]
         {
@@ -671,9 +674,10 @@ pub fn kill_mcp_processes(app: &tauri::AppHandle) {
     if let Some(mut child) = state.child.lock().unwrap().take() {
         #[cfg(windows)]
         {
-            let _ = std::process::Command::new("taskkill")
-                .args(&["/PID", &child.id().to_string(), "/F"])
-                .output();
+            let mut cmd = std::process::Command::new("taskkill");
+            cmd.args(&["/PID", &child.id().to_string(), "/F"]);
+            cmd.creation_flags(0x08000000);
+            let _ = cmd.output();
         }
         #[cfg(not(windows))]
         {
@@ -690,9 +694,10 @@ pub fn kill_mcp_processes(app: &tauri::AppHandle) {
 fn kill_orphan_mcp() {
     #[cfg(windows)]
     {
-        let _ = std::process::Command::new("taskkill")
-            .args(&["/IM", "fastscan-mcp.exe", "/F"])
-            .output();
+        let mut cmd = std::process::Command::new("taskkill");
+        cmd.args(&["/IM", "fastscan-mcp.exe", "/F"]);
+        cmd.creation_flags(0x08000000);
+        let _ = cmd.output();
     }
     #[cfg(not(windows))]
     {

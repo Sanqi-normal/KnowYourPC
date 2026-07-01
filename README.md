@@ -14,14 +14,14 @@
 - **扩展名统计** — 按文件类型的聚合大小分布
 - **文件搜索** — 带防抖输入的实时文件名搜索
 - **MCP 服务器** — 通过 Model Context Protocol 集成 AI 编程助手
-- **管理员提权** — UAC 重启获取 NTFS 原始设备访问权限
+- **自动提权** — 启动时自动请求管理员权限，取消则以非管理员模式运行
 
 ## 技术栈
 
 - **前端**: TypeScript + Vite + Vanilla TypeScript
 - **后端**: Rust + Tauri v2
 - **NTFS 解析**: 纯 Rust，无外部 NTFS 依赖
-- **MCP 服务器**: 独立 Axum HTTP / stdio JSON-RPC 服务
+- **MCP 服务器**: 独立 Axum HTTP SSE 服务
 
 ## 开发环境运行
 
@@ -56,10 +56,9 @@ cargo build -p fastscan-mcp --release
 # 输出: target/release/fastscan-mcp.exe
 ```
 
-MCP 服务器支持两种传输模式：
+MCP 服务器默认以 HTTP SSE 模式运行，在 `127.0.0.1:3721` 监听（端口可通过 `--port` 配置）。
 
-- **stdio**（默认）— 通过标准输入/输出通信，供 MCP 主机作为子进程启动
-- **HTTP**（`--http`）— 启动 Axum HTTP 服务器，在 `127.0.0.1:3721` 提供 SSE 传输（端口可通过 `--port` 配置）
+> **注意:** 旧版 stdio 传输模式的代码仍然保留在源码中（`server_stdio.rs`），如果有需要通过子进程方式启动 MCP 的场景，可参考下方 Claude Code 的 stdio 配置示例自行启用。
 
 
 ## MCP 服务器
@@ -88,24 +87,23 @@ MCP 服务器支持两种传输模式：
 ### 使用方法
 
 ```bash
-# stdio 模式（默认）— 适用于启动子进程的 MCP 主机
+# 默认启动 (HTTP SSE 模式，端口 3721)
 fastscan-mcp
 
-# HTTP 模式 — 适用于远程或基于 SSE 的 MCP 主机
-# HTTP 模式也可由应用内点击MCP服务启动/停止按钮或托盘图标右键点击启动/停止服务生效
-fastscan-mcp --http --port 3721
+# 自定义端口
+fastscan-mcp --port 8080
 ```
+
+启动时会自动弹出 UAC 请求管理员权限。如果取消授权，服务仍会以非管理员模式运行，但 NTFS MFT 快速扫描不可用。
+
+HTTP 模式也可由应用内点击 MCP 服务启动/停止按钮或托盘图标右键点击启动/停止服务生效。
 
 ## MCP 主机配置
 
-以下是各 MCP 兼容 AI 编程助手接入 FastScan MCP 服务器的配置示例。每种主机支持两种传输方式：
+以下是各 MCP 兼容 AI 编程助手接入 FastScan MCP 服务器的 HTTP SSE 配置示例。先启动 `fastscan-mcp`（默认监听 `127.0.0.1:3721`），再配置主机连接其 URL。
 
-- **stdio** — MCP 主机将 `fastscan-mcp` 作为子进程启动（推荐本地使用）
-- **HTTP/SSE** — 先运行 `fastscan-mcp --http`，再配置主机连接其 URL
 
-> **注意:** Windows 上 HTTP 模式请使用 `fastscan-mcp.exe` 的完整路径（如 `D:\KnowYourDisk\binaries\fastscan-mcp.exe`）。
 
-**以下路径示例均使用`D:\KnowYourDisk\binaries\fastscan-mcp.exe`此示例路径，实际需替换为程序实际安装位置**
 
 ---
 
@@ -113,19 +111,6 @@ fastscan-mcp --http --port 3721
 
 **配置文件:** `.vscode/mcp.json`（工作区级别，使用 `"servers"` 键，不是 `"mcpServers"`）
 
-**stdio:**
-```jsonc
-{
-  "servers": {
-    "fastscan": {
-      "type": "stdio",
-      "command": "D:\\KnowYourDisk\\binaries\\fastscan-mcp.exe"
-    }
-  }
-}
-```
-
-**HTTP:**
 ```jsonc
 {
   "servers": {
@@ -143,18 +128,6 @@ fastscan-mcp --http --port 3721
 
 **配置文件:** `%APPDATA%\Claude\claude_desktop_config.json`
 
-**stdio:**
-```jsonc
-{
-  "mcpServers": {
-    "fastscan": {
-      "command": "D:\\KnowYourDisk\\binaries\\fastscan-mcp.exe"
-    }
-  }
-}
-```
-
-**HTTP:**
 ```jsonc
 {
   "mcpServers": {
@@ -172,18 +145,7 @@ fastscan-mcp --http --port 3721
 
 **配置文件:** `.mcp.json`（项目级别）或 `~/.claude.json`（用户级别）
 
-**stdio:**
-```jsonc
-{
-  "mcpServers": {
-    "fastscan": {
-      "command": "D:\\KnowYourDisk\\binaries\\fastscan-mcp.exe"
-    }
-  }
-}
-```
-
-**HTTP**（也可通过 CLI 命令添加）:
+**HTTP**（推荐，也可通过 CLI 命令添加）:
 ```bash
 claude mcp add --transport sse fastscan http://127.0.0.1:3721/sse
 ```
@@ -199,27 +161,24 @@ claude mcp add --transport sse fastscan http://127.0.0.1:3721/sse
 }
 ```
 
+**stdio**（旧版模式，需自行启用编译）:
+> stdio 传输模式的实现代码已保留在 `server_stdio.rs` 中，如需以子进程方式启动 MCP，可参考此配置自行编译启用（路径需实际需替换为程序实际安装位置）。
+```jsonc
+{
+  "mcpServers": {
+    "fastscan": {
+      "command": "D:\\KnowYourDisk\\binaries\\fastscan-mcp.exe"
+    }
+  }
+}
+```
+
 ---
 
 ### OpenCode
 
 **配置文件:** `opencode.json`（项目根目录）
 
-**stdio:**
-```jsonc
-{
-  "$schema": "https://opencode.ai/config.json",
-  "mcp": {
-    "fastscan": {
-      "type": "local",
-      "command": ["D:\\KnowYourDisk\\binaries\\fastscan-mcp.exe"],
-      "enabled": true
-    }
-  }
-}
-```
-
-**HTTP:**
 ```jsonc
 {
   "$schema": "https://opencode.ai/config.json",
@@ -239,13 +198,6 @@ claude mcp add --transport sse fastscan http://127.0.0.1:3721/sse
 
 **配置文件:** `~/.codex/config.toml`
 
-**stdio:**
-```toml
-[mcp_servers.fastscan]
-command = "D:\\KnowYourDisk\\binaries\\fastscan-mcp.exe"
-```
-
-**HTTP:**
 ```toml
 [mcp_servers.fastscan]
 url = "http://127.0.0.1:3721/sse"
@@ -262,18 +214,6 @@ codex mcp add fastscan -- D:\\KnowYourDisk\\binaries\\fastscan-mcp.exe
 
 **配置文件:** `.cursor/mcp.json`（项目级别）或 `~/.cursor/mcp.json`（用户级别）
 
-**stdio:**
-```jsonc
-{
-  "mcpServers": {
-    "fastscan": {
-      "command": "D:\\KnowYourDisk\\binaries\\fastscan-mcp.exe"
-    }
-  }
-}
-```
-
-**HTTP:**
 ```jsonc
 {
   "mcpServers": {

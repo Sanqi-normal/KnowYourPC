@@ -13,14 +13,14 @@
 - **Extension Stats** — Aggregated size distribution by file type
 - **File Search** — Real-time filename search with debounced input
 - **MCP Server** — Integrates with AI coding assistants via Model Context Protocol
-- **Admin Elevation** — UAC restart to gain NTFS raw device access
+- **Auto Elevation** — Requests admin privileges at startup, falls back to non-admin if cancelled
 
 ## Tech Stack
 
 - **Frontend**: TypeScript + Vite + Vanilla TypeScript
 - **Backend**: Rust + Tauri v2
 - **NTFS Parsing**: Pure Rust, no external NTFS dependencies
-- **MCP Server**: Standalone Axum HTTP / stdio JSON-RPC service
+- **MCP Server**: Standalone Axum HTTP SSE service
 
 ## Development
 
@@ -55,10 +55,9 @@ cargo build -p fastscan-mcp --release
 # Output: target/release/fastscan-mcp.exe
 ```
 
-The MCP server supports two transport modes:
+The MCP server runs in HTTP SSE mode by default, listening on `127.0.0.1:3721` (port configurable via `--port`).
 
-- **stdio** (default) — Communicates via stdin/stdout, launched as a subprocess by MCP hosts
-- **HTTP** (`--http`) — Starts an Axum HTTP server providing SSE transport on `127.0.0.1:3721` (port configurable via `--port`)
+> **Note:** The legacy stdio transport code is still present in the source tree (`server_stdio.rs`). If you need subprocess-based MCP launching, refer to the Claude Code stdio example below and re-enable it at compile time.
 
 ## MCP Server
 
@@ -86,24 +85,24 @@ The built-in MCP server (`fastscan-mcp`) exposes disk analysis tools via [Model 
 ### Usage
 
 ```bash
-# stdio mode (default) — for MCP hosts that launch subprocesses
+# Default (HTTP SSE mode, port 3721)
 fastscan-mcp
 
-# HTTP mode — for remote or SSE-based MCP hosts
-# HTTP mode can also be toggled via the in-app MCP start/stop button or tray icon right-click menu
-fastscan-mcp --http --port 3721
+# Custom port
+fastscan-mcp --port 8080
 ```
+
+On startup, a UAC prompt will request administrator privileges. If cancelled, the server continues in non-admin mode, but NTFS MFT fast scanning will be unavailable.
+
+The HTTP mode can also be toggled via the in-app MCP start/stop button or tray icon right-click menu.
 
 ## MCP Host Configuration
 
-Configuration examples for connecting FastScan MCP server to MCP-compatible AI coding assistants. Each host supports two transport modes:
+HTTP SSE configuration examples for connecting FastScan MCP server to MCP-compatible AI coding assistants. Start `fastscan-mcp` first (default listen on `127.0.0.1:3721`), then configure the host to connect to its URL.
 
-- **stdio** — The MCP host launches `fastscan-mcp` as a subprocess (recommended for local use)
-- **HTTP/SSE** — Run `fastscan-mcp --http` first, then configure the host to connect to its URL
 
-> **Note:** On Windows, use the full path to `fastscan-mcp.exe` for HTTP mode (e.g. `D:\KnowYourDisk\binaries\fastscan-mcp.exe`).
 
-**All path examples below use `D:\KnowYourDisk\binaries\fastscan-mcp.exe`. Replace with the actual installation path.**
+
 
 ---
 
@@ -111,19 +110,6 @@ Configuration examples for connecting FastScan MCP server to MCP-compatible AI c
 
 **Config file:** `.vscode/mcp.json` (workspace-level, uses `"servers"` key, not `"mcpServers"`)
 
-**stdio:**
-```jsonc
-{
-  "servers": {
-    "fastscan": {
-      "type": "stdio",
-      "command": "D:\\KnowYourDisk\\binaries\\fastscan-mcp.exe"
-    }
-  }
-}
-```
-
-**HTTP:**
 ```jsonc
 {
   "servers": {
@@ -141,18 +127,6 @@ Configuration examples for connecting FastScan MCP server to MCP-compatible AI c
 
 **Config file:** `%APPDATA%\Claude\claude_desktop_config.json`
 
-**stdio:**
-```jsonc
-{
-  "mcpServers": {
-    "fastscan": {
-      "command": "D:\\KnowYourDisk\\binaries\\fastscan-mcp.exe"
-    }
-  }
-}
-```
-
-**HTTP:**
 ```jsonc
 {
   "mcpServers": {
@@ -170,18 +144,7 @@ Configuration examples for connecting FastScan MCP server to MCP-compatible AI c
 
 **Config file:** `.mcp.json` (project-level) or `~/.claude.json` (user-level)
 
-**stdio:**
-```jsonc
-{
-  "mcpServers": {
-    "fastscan": {
-      "command": "D:\\KnowYourDisk\\binaries\\fastscan-mcp.exe"
-    }
-  }
-}
-```
-
-**HTTP** (or add via CLI):
+**HTTP** (recommended, or add via CLI):
 ```bash
 claude mcp add --transport sse fastscan http://127.0.0.1:3721/sse
 ```
@@ -197,27 +160,24 @@ Or in config file:
 }
 ```
 
+**stdio** (legacy mode, requires recompilation):
+> The stdio transport implementation is preserved in `server_stdio.rs`. If you need subprocess-based MCP launching, refer to this config and recompile with stdio support.Replace with the actual installation path.
+```jsonc
+{
+  "mcpServers": {
+    "fastscan": {
+      "command": "D:\\KnowYourDisk\\binaries\\fastscan-mcp.exe"
+    }
+  }
+}
+```
+
 ---
 
 ### OpenCode
 
 **Config file:** `opencode.json` (project root)
 
-**stdio:**
-```jsonc
-{
-  "$schema": "https://opencode.ai/config.json",
-  "mcp": {
-    "fastscan": {
-      "type": "local",
-      "command": ["D:\\KnowYourDisk\\binaries\\fastscan-mcp.exe"],
-      "enabled": true
-    }
-  }
-}
-```
-
-**HTTP:**
 ```jsonc
 {
   "$schema": "https://opencode.ai/config.json",
@@ -237,13 +197,6 @@ Or in config file:
 
 **Config file:** `~/.codex/config.toml`
 
-**stdio:**
-```toml
-[mcp_servers.fastscan]
-command = "D:\\KnowYourDisk\\binaries\\fastscan-mcp.exe"
-```
-
-**HTTP:**
 ```toml
 [mcp_servers.fastscan]
 url = "http://127.0.0.1:3721/sse"
@@ -260,18 +213,6 @@ codex mcp add fastscan -- D:\\KnowYourDisk\\binaries\\fastscan-mcp.exe
 
 **Config file:** `.cursor/mcp.json` (project-level) or `~/.cursor/mcp.json` (user-level)
 
-**stdio:**
-```jsonc
-{
-  "mcpServers": {
-    "fastscan": {
-      "command": "D:\\KnowYourDisk\\binaries\\fastscan-mcp.exe"
-    }
-  }
-}
-```
-
-**HTTP:**
 ```jsonc
 {
   "mcpServers": {

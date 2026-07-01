@@ -19,103 +19,102 @@ impl ToolRegistry {
 
     pub fn list_tools(&self) -> Vec<serde_json::Value> {
         vec![
-            tool_schema("list_volumes", "List all disk volumes with capacity and filesystem info", serde_json::json!({"type": "object"}), serde_json::json!({
+            tool_schema("list_volumes", "List all disk volumes with capacity, filesystem type, and cluster size. Use to find the target drive root (e.g. C:\\) for scan_disk.", serde_json::json!({"type": "object"}), serde_json::json!({
                 "type": "array", "items": { "type": "object" }
             })),
-            tool_schema("scan_disk", "Deep scan a disk volume. NTFS MFT mode is ~100x faster but needs admin. Results cached for subsequent queries.", serde_json::json!({
+        tool_schema("scan_disk", "Scan a disk volume and cache the result for subsequent queries. Returns summary (elapsed_ms, node_count, file_count, dir_count, total_size, total_allocated, scanner, warnings). Supports three modes: 'auto' (try NTFS MFT first, fall back to walk on permission error), 'ntfs' (MFT raw read, ~100x faster, requires admin), 'walk' (recursive directory traversal, compatible). NTFS MFT mode requires administrator privileges — start fastscan-mcp as admin to enable it.", serde_json::json!({
+        "type": "object",
+        "properties": {
+            "root": { "type": "string", "description": "Drive root to scan, e.g. C:\\" },
+            "mode": { "type": "string", "enum": ["auto", "ntfs", "walk"], "description": "auto=try NTFS MFT then fall back to walk, ntfs=MFT raw read (admin required), walk=compatible recursive scan" },
+            "includeSystemFiles": { "type": "boolean", "description": "Include system files and directories (default false)" }
+        },
+        "required": ["root"]
+    }), serde_json::json!({"type": "object"})),
+            tool_schema("scan_status", "Get cached scan result summary from the last scan_disk call. Returns scanned, nodeCount, fileCount, dirCount, totalSize, totalAllocated.", serde_json::json!({"type": "object"}), serde_json::json!({"type": "object"})),
+            tool_schema("browse_directory", "List immediate children (files + subdirectories) of a directory node. Requires a prior scan_disk call. Each child includes id, parent, name, isDir, size, allocated, totalSize, totalAllocated, childCount, fileCount, dirCount, extension, timestamps.", serde_json::json!({
                 "type": "object",
                 "properties": {
-                    "root": { "type": "string", "description": "Drive root, e.g. C:\\" },
-                    "mode": { "type": "string", "enum": ["auto", "ntfs", "walk"], "description": "Scan mode (auto=try NTFS first, ntfs=MFT fast scan, walk=compatible)" },
-                    "includeSystemFiles": { "type": "boolean", "description": "Include system files" }
-                },
-                "required": ["root"]
-            }), serde_json::json!({"type": "object"})),
-            tool_schema("scan_status", "Get current scan result summary.", serde_json::json!({"type": "object"}), serde_json::json!({"type": "object"})),
-            tool_schema("browse_directory", "Get children of a directory node. Call after scan_disk.", serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "parentId": { "type": "number", "description": "Node ID of the directory" }
+                    "parentId": { "type": "number", "description": "Node ID of the parent directory. Root node is always ID 0." }
                 },
                 "required": ["parentId"]
             }), serde_json::json!({"type": "array", "items": { "type": "object" }})),
-            tool_schema("get_node_path", "Get the full path of a file/directory node.", serde_json::json!({
+            tool_schema("get_node_path", "Get the full filesystem path of any file or directory node from the cached scan.", serde_json::json!({
                 "type": "object",
                 "properties": {
-                    "nodeId": { "type": "number", "description": "Node ID" }
+                    "nodeId": { "type": "number", "description": "Node ID of the file or directory" }
                 },
                 "required": ["nodeId"]
             }), serde_json::json!({"type": "string"})),
-            tool_schema("get_node_details", "Get a node plus all its ancestors (breadcrumb).", serde_json::json!({
+            tool_schema("get_node_details", "Get a node and all its ancestors (breadcrumb path from root to target). Useful for understanding where a file/directory sits in the hierarchy.", serde_json::json!({
                 "type": "object",
                 "properties": {
-                    "nodeId": { "type": "number", "description": "Node ID" }
+                    "nodeId": { "type": "number", "description": "Node ID to get breadcrumb for" }
                 },
                 "required": ["nodeId"]
             }), serde_json::json!({"type": "array", "items": { "type": "object" }})),
-            tool_schema("search_files", "Search files/folders by name with optional filters.", serde_json::json!({
+            tool_schema("search_files", "Search files/folders by name (case-insensitive substring match) with optional filters. Results sorted by allocated size descending. Returns id, name, path, isDir, size, allocated, totalSize, totalAllocated, extension, timestamps.", serde_json::json!({
                 "type": "object",
                 "properties": {
-                    "query": { "type": "string", "description": "Search query (case-insensitive)" },
-                    "maxResults": { "type": "number", "description": "Max results (default 50)" },
-                    "minSize": { "type": "number", "description": "Minimum file size in bytes" },
-                    "maxSize": { "type": "number", "description": "Maximum file size in bytes" },
-                    "extension": { "type": "string", "description": "Filter by extension (e.g. '.exe', 'exe')" },
-                    "isDir": { "type": "boolean", "description": "Filter by directory: true=only dirs, false=only files" },
-                    "olderThanDays": { "type": "number", "description": "Files not modified in N days" }
+                    "query": { "type": "string", "description": "Search term (case-insensitive substring match, not glob)" },
+                    "maxResults": { "type": "number", "description": "Maximum results to return (default 50, max unbounded)" },
+                    "minSize": { "type": "number", "description": "Minimum file size in bytes (inclusive)" },
+                    "maxSize": { "type": "number", "description": "Maximum file size in bytes (inclusive)" },
+                    "extension": { "type": "string", "description": "Filter by extension, e.g. '.exe' or 'exe' (without dot)" },
+                    "isDir": { "type": "boolean", "description": "Filter by type: true=directories only, false=files only" },
+                    "olderThanDays": { "type": "number", "description": "Only files not modified in the last N days" }
                 },
                 "required": ["query"]
             }), serde_json::json!({"type": "array", "items": { "type": "object" }})),
-            tool_schema("get_extension_stats", "Get file extension statistics from the last scan.", serde_json::json!({"type": "object"}), serde_json::json!({
+            tool_schema("get_extension_stats", "Get file extension statistics from the latest scan only (not cumulative across multiple scans). Returns up to 100 extensions sorted by allocated size descending. Each entry: extension, size (logical), allocated (disk usage), fileCount.", serde_json::json!({"type": "object"}), serde_json::json!({
                 "type": "array", "items": { "type": "object" }
             })),
-            tool_schema("get_treemap", "Get treemap visualization data for a directory.", serde_json::json!({
+            tool_schema("get_treemap", "Get treemap visualization data for a directory. Returns a tree structure of nodes sorted by size descending. sizes is total_allocated (disk usage), not logical size.", serde_json::json!({
                 "type": "object",
                 "properties": {
-                    "rootId": { "type": "number", "description": "Node ID to treemap" },
-                    "maxItems": { "type": "number", "description": "Max items per level (default 50)" }
+                    "rootId": { "type": "number", "description": "Root node ID for the treemap" },
+                    "maxItems": { "type": "number", "description": "Max child items per level (default 50)" }
                 },
                 "required": ["rootId"]
             }), serde_json::json!({"type": "array", "items": { "type": "object" }})),
-            tool_schema("get_largest_files", "Get the largest files from the last scan.", serde_json::json!({
+            tool_schema("get_largest_files", "Get the largest files from the last scan. Sorted by logical size descending. Returns id, name, path, size (logical bytes), allocated (disk usage bytes), extension, timestamps.", serde_json::json!({
                 "type": "object",
                 "properties": {
                     "limit": { "type": "number", "description": "Number of files to return (default 50)" },
-                    "minSize": { "type": "number", "description": "Minimum file size in bytes" },
-                    "extension": { "type": "string", "description": "Filter by extension (e.g. '.exe')" }
+                    "minSize": { "type": "number", "description": "Minimum file logical size in bytes (default 0)" },
+                    "extension": { "type": "string", "description": "Filter by extension, e.g. '.exe' or 'exe'" }
                 }
             }), serde_json::json!({"type": "array", "items": { "type": "object" }})),
-            tool_schema("get_largest_directories", "Get the largest directories from the last scan.", serde_json::json!({
+            tool_schema("get_largest_directories", "Get the largest directories from the last scan. Sorted by total_allocated descending. Returns id, name, path, totalSize (sum of logical sizes), totalAllocated (sum of disk usage), fileCount, dirCount, childCount.", serde_json::json!({
                 "type": "object",
                 "properties": {
                     "limit": { "type": "number", "description": "Number of directories to return (default 50)" },
-                    "minSize": { "type": "number", "description": "Minimum total size in bytes" }
+                    "minSize": { "type": "number", "description": "Minimum total allocated size in bytes (default 0)" }
                 }
             }), serde_json::json!({"type": "array", "items": { "type": "object" }})),
-            tool_schema("find_empty_directories", "Find empty directories (no files, no subdirectories).", serde_json::json!({
+            tool_schema("find_empty_directories", "Find empty directories (no files, no subdirectories) from the last scan. Note: reparse points (junctions/symlinks) may cause false empty results. Returns id, name, path, totalSize, totalAllocated, fileCount, dirCount, childCount.", serde_json::json!({
                 "type": "object",
                 "properties": {
-                    "maxResults": { "type": "number", "description": "Max results (default 100)" }
+                    "maxResults": { "type": "number", "description": "Maximum results to return (default 100)" }
                 }
             }), serde_json::json!({"type": "array", "items": { "type": "object" }})),
-            tool_schema("find_duplicate_files", "Find duplicate files by name and size.", serde_json::json!({
+            tool_schema("find_duplicate_files", "Find files with identical name (case-insensitive) and logical size. Groups sorted by file count descending. Returns fileName, size, files[] (with id, name, path, size, allocated, extension, timestamps). Default minSize=1 to skip zero-byte placeholder files.", serde_json::json!({
                 "type": "object",
                 "properties": {
-                    "minSize": { "type": "number", "description": "Minimum file size in bytes to consider (default 0)" },
+                    "minSize": { "type": "number", "description": "Minimum file size in bytes to consider (default 1, use 0 to include zero-byte files)" },
                     "maxResults": { "type": "number", "description": "Max duplicate groups to return (default 50)" }
                 }
             }), serde_json::json!({"type": "array", "items": { "type": "object" }})),
-            tool_schema("find_files_by_age", "Find files by age (modification time).", serde_json::json!({
+            tool_schema("find_files_by_age", "Find files by modification time (older than N days). Sorted by modification time ascending (oldest first). Returns id, name, path, size, allocated, extension, timestamps. For recent files use 'recent' = false logic: set a low olderThanDays value and filter client-side.", serde_json::json!({
                 "type": "object",
                 "properties": {
-                    "olderThanDays": { "type": "number", "description": "Files not modified in N days (required)" },
-                    "maxResults": { "type": "number", "description": "Max results (default 50)" },
-                    "extension": { "type": "string", "description": "Filter by extension" },
-                    "minSize": { "type": "number", "description": "Minimum file size in bytes" }
+                    "olderThanDays": { "type": "number", "description": "Only files not modified in the last N days (required)" },
+                    "maxResults": { "type": "number", "description": "Maximum results to return (default 50)" },
+                    "extension": { "type": "string", "description": "Filter by extension, e.g. '.exe' or 'exe'" },
+                    "minSize": { "type": "number", "description": "Minimum logical size in bytes (default 0)" }
                 },
                 "required": ["olderThanDays"]
-            }), serde_json::json!({"type": "array", "items": { "type": "object" }})),
-        ]
+            }), serde_json::json!({"type": "array", "items": { "type": "object" }})),        ]
     }
 
     pub async fn call_tool(&self, name: &str, args: Value) -> Result<Value, String> {
@@ -156,11 +155,20 @@ impl ToolRegistry {
 
         let options = ScanOptions { root, mode };
 
+        let is_ntfs_explicit = mode_str == "ntfs" || mode_str == "ntfsMft";
         let ctx = ScanContext::new(Arc::new(NoopCallback), 4096);
         let result = tokio::task::spawn_blocking(move || {
             crate::scanner::scan(&ctx, options)
         }).await.map_err(|e| format!("扫描线程失败: {e}"))?
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| {
+            if is_ntfs_explicit {
+                let lowered = e.to_string().to_lowercase();
+                if lowered.contains("拒绝访问") || lowered.contains("access denied") || lowered.contains("admin") || lowered.contains("权限") || lowered.contains("permission") {
+                    return format!("NTFS MFT 快速扫描需要管理员权限。请以管理员身份重新启动 fastscan-mcp。\n原始错误: {e}");
+                }
+            }
+            e.to_string()
+        })?;
 
         let mut tree = self.state.tree.lock().unwrap();
         *tree = Some(result.nodes);
@@ -464,7 +472,7 @@ impl ToolRegistry {
     }
 
     fn find_duplicate_files(&self, args: Value) -> Result<Value, String> {
-        let min_size = args.get("minSize").and_then(|v| v.as_u64()).unwrap_or(0);
+        let min_size = args.get("minSize").and_then(|v| v.as_u64()).unwrap_or(1);
         let max_results = args.get("maxResults").and_then(|v| v.as_u64()).unwrap_or(50) as usize;
 
         let guard = self.state.tree.lock().unwrap();

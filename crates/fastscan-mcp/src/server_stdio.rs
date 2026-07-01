@@ -1,3 +1,7 @@
+// Stdio transport implementation.
+// Currently not compiled into the default binary (HTTP-only mode).
+// Kept for reference — if you need subprocess-based MCP launching, you can
+// wire this back by adding `mod server_stdio;` and re-adding the `--http` flag.
 use std::io::{self, BufRead, Write};
 use std::sync::Arc;
 
