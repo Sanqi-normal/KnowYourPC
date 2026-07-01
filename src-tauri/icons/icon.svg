@@ -1,7 +1,30 @@
-<svg xmlns="http://www.w3.org/2000/svg" clip-rule="evenodd" fill-rule="evenodd" stroke-linecap="round" stroke-linejoin="round" stroke-miterlimit="1.5" version="1.1" viewBox="0 0 226 224">
-  <g fill="none" stroke="#000" stroke-width="16.67px">
-    <path d="m216.92 8.333v206.87h-208.59v-167.34l53.274-39.526h155.32z"/>
-    <path d="m171.38 11.751v72.456l-99.535-0.961v-71.495"/>
-    <ellipse cx="112.63" cy="147.44" rx="26.09" ry="26.034"/>
+<svg xmlns="http://www.w3.org/2000/svg" clip-rule="evenodd" fill-rule="evenodd" stroke-linecap="round" stroke-linejoin="round" stroke-miterlimit="1.5" viewBox="0 0 190 190">
+  <style>
+    .base-body { fill: #2A75D3; stroke: #1A4B8F; stroke-width: 6px; }
+    .metal-shutter { fill: #E0E6ED; stroke: #4A5568; stroke-width: 5px; }
+    .label-area { fill: #FFFFFF; stroke: #4A5568; stroke-width: 5px; }
+    .label-line { stroke: #CBD5E1; stroke-width: 4px; stroke-linecap: round; }
+    .hole { fill: #1A4B8F; }
+    .metal-notch { fill: #A0AEC0; }
+  </style>
+
+  <path class="base-body" d="M176.33,13.67 V174.34 C176.33,177.67 173.66,180.34 170.33,180.34 H12.5 C9.17,180.34 6.5,177.67 6.5,174.34 V43.67 C6.5,41.72 7.47,39.9 9.07,38.83 L53.89,5.56 C55.18,4.6 56.78,4.08 58.44,4.08 H170.33 C173.66,4.08 176.33,6.75 176.33,13.67 Z"/>
+
+  <!-- 金属盖板继续下移，translate y 从 8 改为 16 -->
+  <g transform="translate(0, 16)">
+    <path class="metal-shutter" d="M144.21,4.08 V55.42 C144.21,58.75 141.54,61.42 138.21,61.42 H55.32 C52,61.42 49.33,58.75 49.33,55.42 V4.08 H144.21 Z"/>
+    <rect class="hole" x="62" y="16" width="16" height="30" rx="3"/>
+    <line class="metal-notch" x1="95" y1="16" x2="95" y2="46" stroke-width="3"/>
+    <line class="metal-notch" x1="107" y1="16" x2="107" y2="46" stroke-width="3"/>
+    <line class="metal-notch" x1="119" y1="16" x2="119" y2="46" stroke-width="3"/>
   </g>
+
+  <g>
+    <path class="label-area" d="M152,105 V180.34 H32 V105 C32,101.68 34.68,99 38,99 H146 C149.32,99 152,101.68 152,105 Z"/>
+    <line class="label-line" x1="50" y1="120" x2="134" y2="120"/>
+    <line class="label-line" x1="50" y1="138" x2="134" y2="138"/>
+    <line class="label-line" x1="50" y1="156" x2="134" y2="156"/>
+  </g>
+
+  <rect class="hole" x="150" y="153" width="14" height="14" rx="2"/>
 </svg>
