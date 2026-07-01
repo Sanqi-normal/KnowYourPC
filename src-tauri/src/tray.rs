@@ -39,8 +39,11 @@ pub fn build_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
                     let _ = app.emit("tray-mcp-toggle", ());
                 }
                 "quit" => {
-                    crate::commands::kill_mcp_processes(app);
-                    app.exit(0);
+                    let app = app.clone();
+                    crate::commands::kill_mcp_processes(&app);
+                    std::thread::spawn(move || {
+                        app.exit(0);
+                    });
                 }
                 _ => {}
             }
