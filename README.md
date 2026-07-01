@@ -5,6 +5,8 @@
 
 [English](./README.en.md) · 简体中文
 
+![主界面截图](assets/example.png)
+
 ## 特性
 
 - **NTFS MFT 直接扫描** — 解析原始 `$MFT` 记录，近乎即时返回结果

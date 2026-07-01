@@ -2,7 +2,7 @@
 
 > WizTree-inspired high-speed disk space analysis and visualization, with a built-in MCP server for AI coding assistants
 
-
+![Screenshot](assets/example.png)
 
 ## Features
 
