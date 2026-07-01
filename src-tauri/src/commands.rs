@@ -355,9 +355,7 @@ pub fn open_in_explorer(
 
     let root_path = std::path::Path::new(root);
     let path_obj = std::path::Path::new(&path);
-    // Resolve .. components before prefix check
-    let canonical = path_obj.canonicalize().unwrap_or_else(|_| path_obj.to_path_buf());
-    if !canonical.starts_with(root_path) {
+    if !path_obj.starts_with(root_path) {
         return Err(crate::error::AppError::Win(
             "路径不在当前扫描卷范围内".into(),
         ));
