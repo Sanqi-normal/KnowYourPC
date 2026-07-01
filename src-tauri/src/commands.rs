@@ -7,6 +7,7 @@ use crate::models::{ChildNode, ExtensionStat, NodeDto, ScanOptions, ScanResult, 
 use crate::AppState;
 use crate::McpState;
 use tauri::State;
+use tauri::Manager;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -174,7 +175,7 @@ fn build_treemap_node(
     remaining: &mut u32,
 ) -> Option<TreemapNode> {
     let node = nodes.get(id as usize)?;
-    if node.total_allocated <= 0 {
+    if node.total_allocated == 0 {
         return None;
     }
 
@@ -352,7 +353,9 @@ pub fn open_in_explorer(
 
     let root_path = std::path::Path::new(root);
     let path_obj = std::path::Path::new(&path);
-    if !path_obj.starts_with(root_path) {
+    // Resolve .. components before prefix check
+    let canonical = path_obj.canonicalize().unwrap_or_else(|_| path_obj.to_path_buf());
+    if !canonical.starts_with(root_path) {
         return Err(crate::error::AppError::Win(
             "路径不在当前扫描卷范围内".into(),
         ));
@@ -550,8 +553,12 @@ fn get_mcp_binary() -> Result<PathBuf, String> {
 
 #[tauri::command]
 pub async fn start_mcp_server(
+    app: tauri::AppHandle,
     state: State<'_, McpState>,
 ) -> Result<u16, String> {
+    // 启动前先杀掉所有残留 MCP 进程
+    kill_orphan_mcp();
+
     let mut child_guard = state.child.lock().unwrap();
     if child_guard.is_some() {
         return Err("MCP server 已经在运行中".into());
@@ -590,11 +597,16 @@ pub async fn start_mcp_server(
 
     *child_guard = Some(process);
     *state.port.lock().unwrap() = port_clone;
+
+    // 更新托盘菜单文字
+    crate::tray::set_mcp_menu_text(&app, true);
+
     Ok(port_clone)
 }
 
 #[tauri::command]
 pub async fn stop_mcp_server(
+    app: tauri::AppHandle,
     state: State<'_, McpState>,
 ) -> Result<(), String> {
     let mut child_guard = state.child.lock().unwrap();
@@ -611,6 +623,10 @@ pub async fn stop_mcp_server(
         }
         let _ = child.wait();
         *state.port.lock().unwrap() = 0;
+
+        // 更新托盘菜单文字
+        crate::tray::set_mcp_menu_text(&app, false);
+
         Ok(())
     } else {
         Err("MCP server 未在运行".into())
@@ -622,6 +638,59 @@ pub fn get_mcp_status(state: State<'_, McpState>) -> McpStatus {
     let running = state.child.lock().unwrap().is_some();
     let port = *state.port.lock().unwrap();
     McpStatus { running, port }
+}
+
+#[tauri::command]
+pub fn hide_main_window(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("main") {
+        window.hide().map_err(|e| e.to_string())
+    } else {
+        Ok(())
+    }
+}
+
+#[tauri::command]
+pub fn quit_app(app: tauri::AppHandle) -> Result<(), String> {
+    kill_mcp_processes(&app);
+    app.exit(0);
+    Ok(())
+}
+
+/// 杀掉托管的 MCP 子进程及所有残留 MCP 进程
+pub fn kill_mcp_processes(app: &tauri::AppHandle) {
+    let state = app.state::<McpState>();
+    if let Some(mut child) = state.child.lock().unwrap().take() {
+        #[cfg(windows)]
+        {
+            let _ = std::process::Command::new("taskkill")
+                .args(&["/PID", &child.id().to_string(), "/F"])
+                .output();
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = child.kill();
+        }
+        let _ = child.wait();
+    }
+    *state.port.lock().unwrap() = 0;
+    // 确保杀掉所有残留进程
+    kill_orphan_mcp();
+}
+
+/// 杀掉所有 fastscan-mcp 进程（仅清理孤儿，不影响托管进程）
+fn kill_orphan_mcp() {
+    #[cfg(windows)]
+    {
+        let _ = std::process::Command::new("taskkill")
+            .args(&["/IM", "fastscan-mcp.exe", "/F"])
+            .output();
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = std::process::Command::new("pkill")
+            .args(&["-9", "fastscan-mcp"])
+            .output();
+    }
 }
 
 

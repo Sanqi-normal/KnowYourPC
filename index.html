@@ -143,6 +143,30 @@
       <div id="ctxCopyName" class="ctx-item">复制文件名</div>
     </div>
 
+    <div id="closeDialog" class="close-dialog-overlay hidden">
+      <div class="close-dialog">
+        <div class="close-dialog-title">关闭程序</div>
+        <div class="close-dialog-options">
+          <label class="close-dialog-option">
+            <input type="radio" name="closeAction" value="minimize" checked />
+            <span>最小化到托盘</span>
+          </label>
+          <label class="close-dialog-option">
+            <input type="radio" name="closeAction" value="quit" />
+            <span>退出程序</span>
+          </label>
+        </div>
+        <label class="close-dialog-remember">
+          <input type="checkbox" id="closeRemember" />
+          <span>记住我的选择，不再询问</span>
+        </label>
+        <div class="close-dialog-buttons">
+          <button id="closeDialogCancel" class="secondary-button">取消</button>
+          <button id="closeDialogConfirm" class="primary-button">确定</button>
+        </div>
+      </div>
+    </div>
+
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

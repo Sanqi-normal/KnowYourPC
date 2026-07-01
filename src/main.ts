@@ -86,6 +86,10 @@ const searchInput = qs<HTMLInputElement>("#searchInput");
 const searchResults = qs<HTMLDivElement>("#searchResults");
 
 const treemapTooltip = qs<HTMLDivElement>("#treemapTooltip");
+const closeDialog = qs<HTMLDivElement>("#closeDialog");
+const closeRemember = qs<HTMLInputElement>("#closeRemember");
+const closeDialogConfirm = qs<HTMLButtonElement>("#closeDialogConfirm");
+const closeDialogCancel = qs<HTMLButtonElement>("#closeDialogCancel");
 let contextMenuId: number | null = null;
 let searchTimeout: ReturnType<typeof setTimeout> | null = null;
 
@@ -95,11 +99,49 @@ async function bootstrap() {
   await listen<ProgressEvent>("scan-progress", (event) => {
     renderProgress(event.payload);
   });
+  await listen("show-close-dialog", () => {
+    const saved = localStorage.getItem("closeBehavior");
+    if (saved) {
+      try { executeCloseAction(JSON.parse(saved)); return; }
+      catch { localStorage.removeItem("closeBehavior"); }
+    }
+    showCloseDialog();
+  });
+  await listen("tray-mcp-toggle", () => toggleMcp());
   await loadVolumes();
   renderSummary();
   renderRows();
   renderTreemap();
   initSplitters();
+}
+
+function showCloseDialog() {
+  (document.querySelector<HTMLInputElement>('input[name="closeAction"]:checked') ??
+    document.querySelector<HTMLInputElement>('input[name="closeAction"][value="minimize"]'))!.checked = true;
+  closeRemember.checked = false;
+  closeDialog.classList.remove("hidden");
+}
+
+function onCloseDialogConfirm() {
+  const selected = document.querySelector<HTMLInputElement>('input[name="closeAction"]:checked');
+  if (!selected) return;
+  const option = selected.value;
+  if (closeRemember.checked) {
+    localStorage.setItem("closeBehavior", JSON.stringify(option));
+  }
+  closeDialog.classList.add("hidden");
+  executeCloseAction(option);
+}
+
+function executeCloseAction(option: string) {
+  switch (option) {
+    case "minimize":
+      invoke("hide_main_window");
+      break;
+    case "quit":
+      invoke("quit_app");
+      break;
+  }
 }
 
 async function checkAdmin() {
@@ -329,6 +371,12 @@ function wireEvents() {
   new ResizeObserver(() => renderTreemap()).observe(treemapCanvas);
 
   mcpToggleBtn.addEventListener("click", toggleMcp);
+
+  closeDialogConfirm.addEventListener("click", onCloseDialogConfirm);
+  closeDialogCancel.addEventListener("click", () => closeDialog.classList.add("hidden"));
+  closeDialog.addEventListener("click", (e) => {
+    if (e.target === closeDialog) closeDialog.classList.add("hidden");
+  });
 }
 
 function initSplitters() {
@@ -578,7 +626,6 @@ async function startScan() {
   const options: ScanOptions = {
     root,
     mode: modeSelect.value as ScanMode,
-    includeSystemFiles: true,
   };
 
   scanning = true;
@@ -682,8 +729,9 @@ function renderExtensionStats(stats: ExtensionStat[]) {
     const ext = stat.extension || "(无)";
     const hue = hashExt(ext);
 
+    const safeExt = escapeHtml(ext);
     item.innerHTML = `
-      <span class="ext-name">.${ext}</span>
+      <span class="ext-name">.${safeExt}</span>
       <div class="ext-bar-wrap">
         <div class="ext-bar-fill" style="width:${pct}%;background:hsl(${hue},55%,50%)"></div>
         <span class="ext-bar-label">${formatBytes(stat.allocated)} (${formatNumber(stat.fileCount)})</span>

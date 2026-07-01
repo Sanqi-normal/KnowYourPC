@@ -12,13 +12,13 @@ anyhow = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 walkdir = "2"
+fs2 = "0.4"
 thiserror = "1"
 rayon = "1.10"
 memmap2 = "0.9"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "net", "io-util"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
 axum = { version = "0.7", features = ["json"] }
-tower = "0.4"
 tower-http = { version = "0.5", features = ["cors"] }
 clap = { version = "4", features = ["derive"] }
 uuid = { version = "1", features = ["v4"] }

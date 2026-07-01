@@ -1,7 +1,7 @@
 :root {
   color-scheme: dark;
   font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
-  background: #0d1117;
+  --background: #0d1117;
   color: #c9d1d9;
   --border: #21262d;
   --panel: #161b22;
@@ -536,12 +536,6 @@ button, select {
   color: #fff;
 }
 
-.ctx-separator {
-  height: 1px;
-  background: var(--border);
-  margin: 4px 0;
-}
-
 .pct-cell {
   padding: 0 !important;
   overflow: visible;
@@ -649,11 +643,6 @@ button, select {
   background: #1c2333;
 }
 
-.search-result-item.selected {
-  background: rgba(88, 166, 255, 0.15);
-  outline: 1px solid rgba(88, 166, 255, 0.25);
-}
-
 .search-result-icon {
   flex-shrink: 0;
   font-size: 14px;
@@ -719,4 +708,84 @@ button, select {
 @keyframes mcpPulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.4; }
+}
+
+/* ===================== Close Dialog ===================== */
+
+.close-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+}
+
+.close-dialog-overlay.hidden {
+  display: none;
+}
+
+.close-dialog {
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 10px;
+  padding: 24px 28px;
+  min-width: 380px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+}
+
+.close-dialog-title {
+  font-size: 16px;
+  font-weight: 700;
+  margin-bottom: 18px;
+  color: #c9d1d9;
+}
+
+.close-dialog-options {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.close-dialog-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  cursor: pointer;
+  color: #c9d1d9;
+}
+
+.close-dialog-option input[type="radio"] {
+  accent-color: #58a6ff;
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+.close-dialog-remember {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: #8b949e;
+  cursor: pointer;
+  margin-bottom: 20px;
+  padding-top: 12px;
+  border-top: 1px solid #21262d;
+}
+
+.close-dialog-remember input[type="checkbox"] {
+  accent-color: #58a6ff;
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+.close-dialog-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }

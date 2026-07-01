@@ -31,8 +31,6 @@ pub struct ScanOptions {
     pub root: String,
     #[serde(default)]
     pub mode: ScanMode,
-    #[serde(default)]
-    pub include_system_files: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]

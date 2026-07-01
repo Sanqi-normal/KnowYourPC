@@ -33,7 +33,7 @@ pub async fn serve(tools: ToolRegistry, port: u16) {
         .route("/sse", get(sse_handler))
         .route("/messages", post(messages_handler))
         .route("/health", get(health_handler))
-        .layer(CorsLayer::permissive())
+        .layer(CorsLayer::new().allow_origin(tower_http::cors::AllowOrigin::exact("http://localhost:1420".parse().unwrap())))
         .with_state(state);
 
     let addr = format!("127.0.0.1:{}", port);

@@ -146,7 +146,7 @@ impl ToolRegistry {
     async fn scan_disk(&self, args: Value) -> Result<Value, String> {
         let root = args.get("root").and_then(|v| v.as_str()).ok_or("Missing 'root' argument")?.to_string();
         let mode_str = args.get("mode").and_then(|v| v.as_str()).unwrap_or("auto");
-        let include_system_files = args.get("includeSystemFiles").and_then(|v| v.as_bool()).unwrap_or(false);
+        let _ = args.get("includeSystemFiles").and_then(|v| v.as_bool()).unwrap_or(false);
 
         let mode = match mode_str {
             "ntfs" | "ntfsMft" => ScanMode::NtfsMft,
@@ -154,7 +154,7 @@ impl ToolRegistry {
             _ => ScanMode::Auto,
         };
 
-        let options = ScanOptions { root, mode, include_system_files };
+        let options = ScanOptions { root, mode };
 
         let ctx = ScanContext::new(Arc::new(NoopCallback), 4096);
         let result = tokio::task::spawn_blocking(move || {
@@ -541,7 +541,7 @@ impl ToolRegistry {
 
 fn build_treemap_node(id: u32, nodes: &[NodeDto], remaining: &mut u32) -> Option<TreemapNode> {
     let node = nodes.get(id as usize)?;
-    if node.total_allocated <= 0 { return None; }
+    if node.total_allocated == 0 { return None; }
     if node.is_dir && !node.children.is_empty() {
         let mut children: Vec<TreemapNode> = Vec::new();
         for &child_id in &node.children {
