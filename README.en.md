@@ -1,26 +1,32 @@
 # KnowYourDisk
 
-> WizTree-like NTFS MFT accelerated disk space analyzer
+> WizTree-inspired high-speed disk space analysis and visualization, with a built-in MCP server for AI coding assistants
 
-A Tauri v2 desktop app for ultra-fast disk space analysis on Windows. Reads the NTFS Master File Table directly.
+
 
 ## Features
 
-- **NTFS MFT Direct Scan** — parses raw `$MFT` records for near-instant results
-- **Walkdir Fallback** — compatible recursive mode for non-NTFS volumes
-- **Treemap Visualization** — squarified layout canvas rendering
-- **File Tree** — virtual-scrolled, expandable directory browser
-- **Extension Stats** — aggregated size breakdown by file type
-- **File Search** — real-time name search with debounced input
-- **MCP Server** — bundled AI agent integration via Model Context Protocol
-- **Admin Elevation** — UAC restart for NTFS raw device access
+- **NTFS MFT Direct Scan** — Parses raw `$MFT` records for near-instant results
+- **Walkdir Fallback** — Compatible recursive scan mode for non-NTFS volumes
+- **Treemap Visualization** — Squarified layout canvas rendering
+- **File Tree** — Virtual-scrolled expandable directory browser
+- **Extension Stats** — Aggregated size distribution by file type
+- **File Search** — Real-time filename search with debounced input
+- **MCP Server** — Integrates with AI coding assistants via Model Context Protocol
+- **Admin Elevation** — UAC restart to gain NTFS raw device access
 
 ## Tech Stack
 
-- **Frontend**: TypeScript + Vite + Vanilla DOM
+- **Frontend**: TypeScript + Vite + Vanilla TypeScript
 - **Backend**: Rust + Tauri v2
-- **NTFS Parsing**: Pure Rust, zero external NTFS dependencies
-- **MCP Server**: Standalone Axum HTTP / stdio JSON-RPC server
+- **NTFS Parsing**: Pure Rust, no external NTFS dependencies
+- **MCP Server**: Standalone Axum HTTP / stdio JSON-RPC service
+
+## Development
+
+```bash
+npm run dev
+```
 
 ## Build
 
@@ -28,56 +34,47 @@ A Tauri v2 desktop app for ultra-fast disk space analysis on Windows. Reads the 
 
 ```bash
 npm install
-npm run tauri build
+npm run build
 ```
 
-During `tauri dev` or `tauri build`, the MCP binary is automatically compiled and copied to `src-tauri/binaries/` and bundled as a resource in the final installer.
+During `dev` or `build`, the MCP binary is automatically compiled and copied to `src-tauri/binaries/`, bundled into the final installer.
 
-### MCP Server Only (Standalone)
+### Build MCP Server Only (Standalone)
 
-Build just the MCP server binary for standalone use outside the Tauri app:
+Build the standalone MCP server binary for use outside the Tauri app:
 
 **Debug:**
 ```bash
 cargo build -p fastscan-mcp
-# Binary: target/debug/fastscan-mcp.exe
+# Output: target/debug/fastscan-mcp.exe
 ```
 
 **Release:**
 ```bash
 cargo build -p fastscan-mcp --release
-# Binary: target/release/fastscan-mcp.exe
+# Output: target/release/fastscan-mcp.exe
 ```
 
 The MCP server supports two transport modes:
 
-- **stdio** (default) — communicates over stdin/stdout, intended for MCP hosts that spawn it as a child process
-- **HTTP** (`--http`) — runs an Axum HTTP server with SSE transport on `127.0.0.1:3721` (port configurable via `--port`)
-
-### Copy to Tauri Bundle
-
-```bash
-npm run build:mcp        # debug build + copy
-npm run build:mcp:release # release build + copy
-```
-
-Requires Rust 1.77+ and Node.js 18+.
+- **stdio** (default) — Communicates via stdin/stdout, launched as a subprocess by MCP hosts
+- **HTTP** (`--http`) — Starts an Axum HTTP server providing SSE transport on `127.0.0.1:3721` (port configurable via `--port`)
 
 ## MCP Server
 
-The bundled MCP server (`fastscan-mcp`) exposes disk analysis tools over the [Model Context Protocol](https://modelcontextprotocol.io), enabling AI coding agents to scan volumes, browse directories, search files, and analyze disk usage directly.
+The built-in MCP server (`fastscan-mcp`) exposes disk analysis tools via [Model Context Protocol](https://modelcontextprotocol.io), enabling AI coding assistants to scan volumes, browse directories, search files, and analyze disk usage.
 
 ### Tools
 
 | Tool | Description |
 |------|-------------|
 | `list_volumes` | List all disk volumes with capacity and filesystem info |
-| `scan_disk` | Deep scan a disk volume (NTFS MFT ~100x faster, requires admin) |
-| `scan_status` | Get current scan result summary |
+| `scan_disk` | Deep scan a disk volume (NTFS MFT requires admin; auto-falls back to walkdir) |
+| `scan_status` | Get a summary of the current scan results |
 | `browse_directory` | Get children of a directory node |
 | `get_node_path` | Get the full path of a file/directory node |
-| `get_node_details` | Get a node plus all its ancestors |
-| `search_files` | Search files/folders by name with optional filters |
+| `get_node_details` | Get a node and all its ancestor nodes (breadcrumb navigation) |
+| `search_files` | Search files/directories by name (with optional filters) |
 | `get_extension_stats` | Get file extension statistics from the last scan |
 | `get_treemap` | Get treemap visualization data for a directory |
 | `get_largest_files` | Get the largest files from the last scan |
@@ -89,21 +86,24 @@ The bundled MCP server (`fastscan-mcp`) exposes disk analysis tools over the [Mo
 ### Usage
 
 ```bash
-# stdio mode (default) — for MCP hosts that spawn child processes
+# stdio mode (default) — for MCP hosts that launch subprocesses
 fastscan-mcp
 
 # HTTP mode — for remote or SSE-based MCP hosts
+# HTTP mode can also be toggled via the in-app MCP start/stop button or tray icon right-click menu
 fastscan-mcp --http --port 3721
 ```
 
 ## MCP Host Configuration
 
-Below are the configuration examples for connecting various MCP-compatible AI coding agents to the FastScan MCP server. Each host supports two transport methods:
+Configuration examples for connecting FastScan MCP server to MCP-compatible AI coding assistants. Each host supports two transport modes:
 
-- **stdio** — the MCP host spawns `fastscan-mcp` as a child process (recommended for local use)
-- **HTTP/SSE** — run `fastscan-mcp --http` first, then configure the host to connect to its URL
+- **stdio** — The MCP host launches `fastscan-mcp` as a subprocess (recommended for local use)
+- **HTTP/SSE** — Run `fastscan-mcp --http` first, then configure the host to connect to its URL
 
-> **Note:** For HTTP mode on Windows, use the full path to the `fastscan-mcp.exe` binary (e.g., `D:\tools\fastscan-mcp.exe`).
+> **Note:** On Windows, use the full path to `fastscan-mcp.exe` for HTTP mode (e.g. `D:\KnowYourDisk\binaries\fastscan-mcp.exe`).
+
+**All path examples below use `D:\KnowYourDisk\binaries\fastscan-mcp.exe`. Replace with the actual installation path.**
 
 ---
 
@@ -117,7 +117,7 @@ Below are the configuration examples for connecting various MCP-compatible AI co
   "servers": {
     "fastscan": {
       "type": "stdio",
-      "command": "D:\\tools\\fastscan-mcp.exe"
+      "command": "D:\\KnowYourDisk\\binaries\\fastscan-mcp.exe"
     }
   }
 }
@@ -146,7 +146,7 @@ Below are the configuration examples for connecting various MCP-compatible AI co
 {
   "mcpServers": {
     "fastscan": {
-      "command": "D:\\tools\\fastscan-mcp.exe"
+      "command": "D:\\KnowYourDisk\\binaries\\fastscan-mcp.exe"
     }
   }
 }
@@ -175,13 +175,13 @@ Below are the configuration examples for connecting various MCP-compatible AI co
 {
   "mcpServers": {
     "fastscan": {
-      "command": "D:\\tools\\fastscan-mcp.exe"
+      "command": "D:\\KnowYourDisk\\binaries\\fastscan-mcp.exe"
     }
   }
 }
 ```
 
-**HTTP** (also via CLI command):
+**HTTP** (or add via CLI):
 ```bash
 claude mcp add --transport sse fastscan http://127.0.0.1:3721/sse
 ```
@@ -210,7 +210,7 @@ Or in config file:
   "mcp": {
     "fastscan": {
       "type": "local",
-      "command": ["D:\\tools\\fastscan-mcp.exe"],
+      "command": ["D:\\KnowYourDisk\\binaries\\fastscan-mcp.exe"],
       "enabled": true
     }
   }
@@ -240,7 +240,7 @@ Or in config file:
 **stdio:**
 ```toml
 [mcp_servers.fastscan]
-command = "D:\\tools\\fastscan-mcp.exe"
+command = "D:\\KnowYourDisk\\binaries\\fastscan-mcp.exe"
 ```
 
 **HTTP:**
@@ -251,7 +251,7 @@ url = "http://127.0.0.1:3721/sse"
 
 Or via CLI:
 ```bash
-codex mcp add fastscan -- D:\\tools\\fastscan-mcp.exe
+codex mcp add fastscan -- D:\\KnowYourDisk\\binaries\\fastscan-mcp.exe
 ```
 
 ---
@@ -265,7 +265,7 @@ codex mcp add fastscan -- D:\\tools\\fastscan-mcp.exe
 {
   "mcpServers": {
     "fastscan": {
-      "command": "D:\\tools\\fastscan-mcp.exe"
+      "command": "D:\\KnowYourDisk\\binaries\\fastscan-mcp.exe"
     }
   }
 }
@@ -286,17 +286,13 @@ Also configurable via Cursor settings UI (Features > MCP > Add New MCP Server).
 
 ---
 
-### Summary of Config File Locations
+### Config File Locations
 
 | Host | Config File | Root Key |
-|------|-------------|----------|
+|------|------------|----------|
 | VS Code | `.vscode/mcp.json` | `servers` |
 | Claude Desktop | `%APPDATA%\Claude\claude_desktop_config.json` | `mcpServers` |
 | Claude Code | `.mcp.json` / `~/.claude.json` | `mcpServers` |
 | OpenCode | `opencode.json` | `mcp` |
 | Codex CLI | `~/.codex/config.toml` | `[mcp_servers.*]` |
 | Cursor | `.cursor/mcp.json` / `~/.cursor/mcp.json` | `mcpServers` |
-
-## License
-
-MIT

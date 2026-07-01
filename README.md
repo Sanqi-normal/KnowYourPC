@@ -1,6 +1,6 @@
 # KnowYourDisk
 
-> 仿 WizTree 的 NTFS MFT 加速磁盘空间分析器
+> 仿 WizTree 的 高速磁盘空间分析和可视化，并为主机提供通用MCP
 
 
 [English](./README.en.md) · 简体中文
@@ -18,7 +18,7 @@
 
 ## 技术栈
 
-- **前端**: TypeScript + Vite + Vanilla DOM
+- **前端**: TypeScript + Vite + Vanilla TypeScript
 - **后端**: Rust + Tauri v2
 - **NTFS 解析**: 纯 Rust，无外部 NTFS 依赖
 - **MCP 服务器**: 独立 Axum HTTP / stdio JSON-RPC 服务
@@ -35,7 +35,7 @@ npm run dev
 
 ```bash
 npm install
-npm run  build
+npm run build
 ```
 
 在 `dev` 或 `build` 过程中，MCP 二进制文件会自动编译并复制到 `src-tauri/binaries/`，最终打包到安装程序中。
@@ -71,7 +71,7 @@ MCP 服务器支持两种传输模式：
 | 工具 | 描述 |
 |------|------|
 | `list_volumes` | 列出所有磁盘卷的容量和文件系统信息 |
-| `scan_disk` | 深度扫描磁盘卷（NTFS MFT 快约 100 倍，需管理员权限） |
+| `scan_disk` | 深度扫描磁盘卷（NTFS MFT需管理员权限，如无则自动回退walkdir） |
 | `scan_status` | 获取当前扫描结果摘要 |
 | `browse_directory` | 获取目录节点的子项 |
 | `get_node_path` | 获取文件/目录节点的完整路径 |
