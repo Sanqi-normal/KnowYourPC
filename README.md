@@ -1,6 +1,6 @@
 # KnowYourDisk
 
-> 仿 WizTree 的 高速磁盘空间分析和可视化，并为主机提供通用MCP
+> 仿 WizTree 的 高速磁盘空间分析和可视化，并为agent提供MCP
 
 
 [English](./README.en.md) · 简体中文

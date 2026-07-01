@@ -1,8 +1,8 @@
 [package]
 name = "know-your-disk"
-version = "0.1.0"
+version = "0.1.21"
 description = "WizTree-like NTFS MFT accelerated disk space analyzer"
-authors = ["sanqi"]
+authors = ["叁七"]
 edition = "2021"
 
 [lib]

@@ -1,6 +1,7 @@
 [package]
 name = "fastscan-mcp"
-version = "0.1.0"
+version = "0.1.21"
+authors = ["叁七"]
 edition = "2021"
 
 [[bin]]
