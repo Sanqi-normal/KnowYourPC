@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use serde_json::Value;
+use chrono::DateTime;
+use serde_json::{json, Value};
 
 use crate::models::*;
 use crate::progress::{NoopCallback, ScanContext};
@@ -32,10 +33,13 @@ impl ToolRegistry {
         "required": ["root"]
     }), serde_json::json!({"type": "object"})),
             tool_schema("scan_status", "Get cached scan result summary from the last scan_disk call. Returns scanned, nodeCount, fileCount, dirCount, totalSize, totalAllocated.", serde_json::json!({"type": "object"}), serde_json::json!({"type": "object"})),
-            tool_schema("browse_directory", "List immediate children (files + subdirectories) of a directory node. Requires a prior scan_disk call. Each child includes id, parent, name, isDir, size, allocated, totalSize, totalAllocated, childCount, fileCount, dirCount, extension, timestamps.", serde_json::json!({
+            tool_schema("browse_directory", "List immediate children (files + subdirectories) of a directory node. Requires a prior scan_disk call. Each child includes id, parent, name, isDir, size, allocated, totalSize, totalAllocated, childCount, fileCount, dirCount, extension, timestamps. Supports fields filter, timestampFormat, summary.", serde_json::json!({
                 "type": "object",
                 "properties": {
-                    "parentId": { "type": "number", "description": "Node ID of the parent directory. Root node is always ID 0." }
+                    "parentId": { "type": "number", "description": "Node ID of the parent directory. Root node is always ID 0." },
+                    "fields": { "type": "array", "items": { "type": "string" }, "description": "Fields to include, e.g. [\"name\",\"size\",\"modified\"]" },
+                    "timestampFormat": { "type": "string", "enum": ["epoch", "iso"], "description": "Timestamp format: epoch (Unix sec) or iso (RFC 3339, default epoch)" },
+                    "summary": { "type": "boolean", "description": "Return aggregate count/size instead of items" }
                 },
                 "required": ["parentId"]
             }), serde_json::json!({"type": "array", "items": { "type": "object" }})),
@@ -53,7 +57,7 @@ impl ToolRegistry {
                 },
                 "required": ["nodeId"]
             }), serde_json::json!({"type": "array", "items": { "type": "object" }})),
-            tool_schema("search_files", "Search files/folders by name (case-insensitive substring match) with optional filters. Results sorted by allocated size descending. Returns id, name, path, isDir, size, allocated, totalSize, totalAllocated, extension, timestamps.", serde_json::json!({
+            tool_schema("search_files", "Search files/folders by name (case-insensitive substring match) with optional filters. Results sorted by allocated size descending. Returns id, name, path, isDir, size, allocated, totalSize, totalAllocated, extension, timestamps. Supports fields filter, timestampFormat, summary.", serde_json::json!({
                 "type": "object",
                 "properties": {
                     "query": { "type": "string", "description": "Search term (case-insensitive substring match, not glob)" },
@@ -62,56 +66,81 @@ impl ToolRegistry {
                     "maxSize": { "type": "number", "description": "Maximum file size in bytes (inclusive)" },
                     "extension": { "type": "string", "description": "Filter by extension, e.g. '.exe' or 'exe' (without dot)" },
                     "isDir": { "type": "boolean", "description": "Filter by type: true=directories only, false=files only" },
-                    "olderThanDays": { "type": "number", "description": "Only files not modified in the last N days" }
+                    "olderThanDays": { "type": "number", "description": "Only files not modified in the last N days" },
+                    "fields": { "type": "array", "items": { "type": "string" }, "description": "Fields to include, e.g. [\"name\",\"path\",\"size\"]" },
+                    "timestampFormat": { "type": "string", "enum": ["epoch", "iso"], "description": "Timestamp format: epoch (Unix sec) or iso (RFC 3339, default epoch)" },
+                    "summary": { "type": "boolean", "description": "Return aggregate count/size instead of items" }
                 },
                 "required": ["query"]
             }), serde_json::json!({"type": "array", "items": { "type": "object" }})),
-            tool_schema("get_extension_stats", "Get file extension statistics from the latest scan only (not cumulative across multiple scans). Returns up to 100 extensions sorted by allocated size descending. Each entry: extension, size (logical), allocated (disk usage), fileCount.", serde_json::json!({"type": "object"}), serde_json::json!({
+            tool_schema("get_extension_stats", "Get file extension statistics from the latest scan only (not cumulative across multiple scans). Returns up to 100 extensions sorted by allocated size descending. Each entry: extension, size (logical), allocated (disk usage), fileCount. Supports fields filter.", serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "fields": { "type": "array", "items": { "type": "string" }, "description": "Fields to include, e.g. [\"extension\",\"allocated\"]" }
+                }
+            }), serde_json::json!({
                 "type": "array", "items": { "type": "object" }
             })),
-            tool_schema("get_treemap", "Get treemap visualization data for a directory. Returns a tree structure of nodes sorted by size descending. sizes is total_allocated (disk usage), not logical size.", serde_json::json!({
+            tool_schema("get_treemap", "Get treemap visualization data for a directory. Returns a tree structure of nodes sorted by size descending. sizes is total_allocated (disk usage), not logical size. Supports verbose=false for lean output, maxDepth to limit nesting, timestampFormat.", serde_json::json!({
                 "type": "object",
                 "properties": {
                     "rootId": { "type": "number", "description": "Root node ID for the treemap" },
-                    "maxItems": { "type": "number", "description": "Max child items per level (default 50)" }
+                    "maxItems": { "type": "number", "description": "Max child items per level (default 50)" },
+                    "verbose": { "type": "boolean", "description": "Full output (default true); false = only id/name/size/children" },
+                    "maxDepth": { "type": "number", "description": "Max nesting depth (0=root only, 1=include children, default unlimited)" },
+                    "timestampFormat": { "type": "string", "enum": ["epoch", "iso"], "description": "Timestamp format: epoch (Unix sec) or iso (RFC 3339, default epoch)" }
                 },
                 "required": ["rootId"]
             }), serde_json::json!({"type": "array", "items": { "type": "object" }})),
-            tool_schema("get_largest_files", "Get the largest files from the last scan. Sorted by logical size descending. Returns id, name, path, size (logical bytes), allocated (disk usage bytes), extension, timestamps.", serde_json::json!({
+            tool_schema("get_largest_files", "Get the largest files from the last scan. Sorted by logical size descending. Returns id, name, path, size (logical bytes), allocated (disk usage bytes), extension, timestamps. Supports fields filter, timestampFormat, summary.", serde_json::json!({
                 "type": "object",
                 "properties": {
                     "limit": { "type": "number", "description": "Number of files to return (default 50)" },
                     "minSize": { "type": "number", "description": "Minimum file logical size in bytes (default 0)" },
-                    "extension": { "type": "string", "description": "Filter by extension, e.g. '.exe' or 'exe'" }
+                    "extension": { "type": "string", "description": "Filter by extension, e.g. '.exe' or 'exe'" },
+                    "fields": { "type": "array", "items": { "type": "string" }, "description": "Fields to include, e.g. [\"name\",\"path\",\"size\"]" },
+                    "timestampFormat": { "type": "string", "enum": ["epoch", "iso"], "description": "Timestamp format: epoch (Unix sec) or iso (RFC 3339, default epoch)" },
+                    "summary": { "type": "boolean", "description": "Return aggregate count/size instead of items" }
                 }
             }), serde_json::json!({"type": "array", "items": { "type": "object" }})),
-            tool_schema("get_largest_directories", "Get the largest directories from the last scan. Sorted by total_allocated descending. Returns id, name, path, totalSize (sum of logical sizes), totalAllocated (sum of disk usage), fileCount, dirCount, childCount.", serde_json::json!({
+            tool_schema("get_largest_directories", "Get the largest directories from the last scan. Sorted by total_allocated descending. Returns id, name, path, totalSize, totalAllocated, fileCount, dirCount, childCount. Supports fields filter, timestampFormat, summary.", serde_json::json!({
                 "type": "object",
                 "properties": {
                     "limit": { "type": "number", "description": "Number of directories to return (default 50)" },
-                    "minSize": { "type": "number", "description": "Minimum total allocated size in bytes (default 0)" }
+                    "minSize": { "type": "number", "description": "Minimum total allocated size in bytes (default 0)" },
+                    "fields": { "type": "array", "items": { "type": "string" }, "description": "Fields to include, e.g. [\"name\",\"path\",\"totalSize\"]" },
+                    "timestampFormat": { "type": "string", "enum": ["epoch", "iso"], "description": "Timestamp format: epoch (Unix sec) or iso (RFC 3339, default epoch)" },
+                    "summary": { "type": "boolean", "description": "Return aggregate count/size instead of items" }
                 }
             }), serde_json::json!({"type": "array", "items": { "type": "object" }})),
-            tool_schema("find_empty_directories", "Find empty directories (no files, no subdirectories) from the last scan. Note: reparse points (junctions/symlinks) may cause false empty results. Returns id, name, path, totalSize, totalAllocated, fileCount, dirCount, childCount.", serde_json::json!({
+            tool_schema("find_empty_directories", "Find empty directories (no files, no subdirectories) from the last scan. Note: reparse points (junctions/symlinks) may cause false empty results. Returns id, name, path, totalSize, totalAllocated, fileCount, dirCount, childCount. Supports fields filter, timestampFormat, summary.", serde_json::json!({
                 "type": "object",
                 "properties": {
-                    "maxResults": { "type": "number", "description": "Maximum results to return (default 100)" }
+                    "maxResults": { "type": "number", "description": "Maximum results to return (default 100)" },
+                    "fields": { "type": "array", "items": { "type": "string" }, "description": "Fields to include, e.g. [\"name\",\"path\"]" },
+                    "timestampFormat": { "type": "string", "enum": ["epoch", "iso"], "description": "Timestamp format: epoch (Unix sec) or iso (RFC 3339, default epoch)" },
+                    "summary": { "type": "boolean", "description": "Return aggregate count/size instead of items" }
                 }
             }), serde_json::json!({"type": "array", "items": { "type": "object" }})),
-            tool_schema("find_duplicate_files", "Find files with identical name (case-insensitive) and logical size. Groups sorted by file count descending. Returns fileName, size, files[] (with id, name, path, size, allocated, extension, timestamps). Default minSize=1 to skip zero-byte placeholder files.", serde_json::json!({
+            tool_schema("find_duplicate_files", "Find files with identical name (case-insensitive) and logical size. Groups sorted by file count descending. Returns fileName, size, fileCount, totalSize, files[] (truncated to maxFileExamples), truncated flag, timestamps. Default minSize=1 to skip zero-byte placeholder files.", serde_json::json!({
                 "type": "object",
                 "properties": {
                     "minSize": { "type": "number", "description": "Minimum file size in bytes to consider (default 1, use 0 to include zero-byte files)" },
-                    "maxResults": { "type": "number", "description": "Max duplicate groups to return (default 50)" }
+                    "maxResults": { "type": "number", "description": "Max duplicate groups to return (default 50)" },
+                    "maxFileExamples": { "type": "number", "description": "Max example files per group (default 10; use 0 for no limit)" },
+                    "timestampFormat": { "type": "string", "enum": ["epoch", "iso"], "description": "Timestamp format: epoch (Unix sec) or iso (RFC 3339, default epoch)" }
                 }
             }), serde_json::json!({"type": "array", "items": { "type": "object" }})),
-            tool_schema("find_files_by_age", "Find files by modification time (older than N days). Sorted by modification time ascending (oldest first). Returns id, name, path, size, allocated, extension, timestamps. For recent files use 'recent' = false logic: set a low olderThanDays value and filter client-side.", serde_json::json!({
+            tool_schema("find_files_by_age", "Find files by modification time (older than N days). Sorted by modification time ascending (oldest first). Returns id, name, path, size, allocated, extension, timestamps. Supports fields filter, timestampFormat, summary.", serde_json::json!({
                 "type": "object",
                 "properties": {
                     "olderThanDays": { "type": "number", "description": "Only files not modified in the last N days (required)" },
                     "maxResults": { "type": "number", "description": "Maximum results to return (default 50)" },
                     "extension": { "type": "string", "description": "Filter by extension, e.g. '.exe' or 'exe'" },
-                    "minSize": { "type": "number", "description": "Minimum logical size in bytes (default 0)" }
+                    "minSize": { "type": "number", "description": "Minimum logical size in bytes (default 0)" },
+                    "fields": { "type": "array", "items": { "type": "string" }, "description": "Fields to include, e.g. [\"name\",\"path\",\"modified\"]" },
+                    "timestampFormat": { "type": "string", "enum": ["epoch", "iso"], "description": "Timestamp format: epoch (Unix sec) or iso (RFC 3339, default epoch)" },
+                    "summary": { "type": "boolean", "description": "Return aggregate count/size instead of items" }
                 },
                 "required": ["olderThanDays"]
             }), serde_json::json!({"type": "array", "items": { "type": "object" }})),        ]
@@ -246,7 +275,7 @@ impl ToolRegistry {
                 Some(Self::to_child_node(child))
             }).collect();
 
-        serde_json::to_value(children).map_err(|e| e.to_string())
+        serde_json::to_value(children).map_err(|e| e.to_string()).map(|v| apply_output_options(v, &args))
     }
 
     fn get_node_path(&self, args: Value) -> Result<Value, String> {
@@ -273,7 +302,7 @@ impl ToolRegistry {
             } else { break; }
         }
         result.reverse();
-        serde_json::to_value(result).map_err(|e| e.to_string())
+        serde_json::to_value(result).map_err(|e| e.to_string()).map(|v| apply_output_options(v, &args))
     }
 
     fn search_files(&self, args: Value) -> Result<Value, String> {
@@ -330,7 +359,7 @@ impl ToolRegistry {
 
         results.sort_by(|a, b| b.total_allocated.cmp(&a.total_allocated));
         results.truncate(max_results);
-        serde_json::to_value(results).map_err(|e| e.to_string())
+        serde_json::to_value(results).map_err(|e| e.to_string()).map(|v| apply_output_options(v, &args))
     }
 
     fn get_extension_stats(&self) -> Result<Value, String> {
@@ -385,7 +414,26 @@ impl ToolRegistry {
             }
         }
         items.sort_by(|a, b| b.size.cmp(&a.size));
-        serde_json::to_value(items).map_err(|e| e.to_string())
+        let mut value = serde_json::to_value(items).map_err(|e| e.to_string())?;
+
+        let verbose = args.get("verbose").and_then(|v| v.as_bool()).unwrap_or(true);
+        let max_depth = args.get("maxDepth").and_then(|v| v.as_u64());
+
+        if !verbose {
+            value = match value {
+                Value::Array(arr) => Value::Array(arr.iter().map(|v| strip_treemap_verbose(v)).collect()),
+                other => strip_treemap_verbose(&other),
+            };
+        }
+
+        if let Some(depth) = max_depth {
+            value = match value {
+                Value::Array(arr) => Value::Array(arr.iter().map(|v| trim_treemap_depth(v, depth as u32)).collect()),
+                other => trim_treemap_depth(&other, depth as u32),
+            };
+        }
+
+        Ok(apply_output_options(value, &args))
     }
 
     fn get_largest_files(&self, args: Value) -> Result<Value, String> {
@@ -417,7 +465,7 @@ impl ToolRegistry {
 
         files.sort_by(|a, b| b.size.cmp(&a.size));
         files.truncate(limit);
-        serde_json::to_value(files).map_err(|e| e.to_string())
+        serde_json::to_value(files).map_err(|e| e.to_string()).map(|v| apply_output_options(v, &args))
     }
 
     fn get_largest_directories(&self, args: Value) -> Result<Value, String> {
@@ -443,7 +491,7 @@ impl ToolRegistry {
 
         dirs.sort_by(|a, b| b.total_allocated.cmp(&a.total_allocated));
         dirs.truncate(limit);
-        serde_json::to_value(dirs).map_err(|e| e.to_string())
+        serde_json::to_value(dirs).map_err(|e| e.to_string()).map(|v| apply_output_options(v, &args))
     }
 
     fn find_empty_directories(&self, args: Value) -> Result<Value, String> {
@@ -468,12 +516,13 @@ impl ToolRegistry {
 
         dirs.sort_by(|a, b| b.total_allocated.cmp(&a.total_allocated));
         dirs.truncate(max_results);
-        serde_json::to_value(dirs).map_err(|e| e.to_string())
+        serde_json::to_value(dirs).map_err(|e| e.to_string()).map(|v| apply_output_options(v, &args))
     }
 
     fn find_duplicate_files(&self, args: Value) -> Result<Value, String> {
         let min_size = args.get("minSize").and_then(|v| v.as_u64()).unwrap_or(1);
         let max_results = args.get("maxResults").and_then(|v| v.as_u64()).unwrap_or(50) as usize;
+        let max_examples = args.get("maxFileExamples").and_then(|v| v.as_u64()).unwrap_or(10) as usize;
 
         let guard = self.state.tree.lock().unwrap();
         let nodes = guard.as_ref().ok_or("尚未扫描")?;
@@ -491,22 +540,29 @@ impl ToolRegistry {
         let mut result: Vec<DuplicateGroup> = groups.into_iter()
             .filter(|(_, v)| v.len() > 1)
             .map(|((name, size), files)| {
+                let file_count = files.len();
+                let total_size = size * file_count as u64;
+                let truncated = file_count > max_examples;
+                let example_files: Vec<FileInfo> = files.iter().take(max_examples).map(|n| FileInfo {
+                    id: n.id, name: n.name.clone(),
+                    path: self.build_path(n.id, nodes, root_str),
+                    size: n.size, allocated: n.allocated,
+                    extension: n.extension.clone(),
+                    created: n.created, modified: n.modified, accessed: n.accessed,
+                }).collect();
                 DuplicateGroup {
                     file_name: name,
                     size,
-                    files: files.iter().map(|n| FileInfo {
-                        id: n.id, name: n.name.clone(),
-                        path: self.build_path(n.id, nodes, root_str),
-                        size: n.size, allocated: n.allocated,
-                        extension: n.extension.clone(),
-                        created: n.created, modified: n.modified, accessed: n.accessed,
-                    }).collect(),
+                    file_count,
+                    total_size,
+                    files: example_files,
+                    truncated: if truncated { Some(true) } else { None },
                 }
             }).collect();
 
-        result.sort_by(|a, b| b.files.len().cmp(&a.files.len()));
+        result.sort_by(|a, b| b.file_count.cmp(&a.file_count));
         result.truncate(max_results);
-        serde_json::to_value(result).map_err(|e| e.to_string())
+        serde_json::to_value(result).map_err(|e| e.to_string()).map(|v| apply_output_options(v, &args))
     }
 
     fn find_files_by_age(&self, args: Value) -> Result<Value, String> {
@@ -543,7 +599,141 @@ impl ToolRegistry {
 
         files.sort_by(|a, b| a.modified.cmp(&b.modified));
         files.truncate(max_results);
-        serde_json::to_value(files).map_err(|e| e.to_string())
+        serde_json::to_value(files).map_err(|e| e.to_string()).map(|v| apply_output_options(v, &args))
+    }
+}
+
+fn apply_output_options(value: Value, args: &Value) -> Value {
+    let mut value = value;
+
+    if args.get("summary").and_then(|v| v.as_bool()).unwrap_or(false) {
+        if let Value::Array(ref items) = value {
+            return summarize_array(items);
+        }
+    }
+
+    if let Some(fields) = args.get("fields").and_then(|v| v.as_array()) {
+        let names: Vec<String> = fields.iter().filter_map(|v| v.as_str().map(String::from)).collect();
+        if !names.is_empty() {
+            value = filter_fields(value, &names);
+        }
+    }
+
+    if args.get("timestampFormat").and_then(|v| v.as_str()) == Some("iso") {
+        value = convert_timestamps(value);
+    }
+
+    value
+}
+
+fn filter_fields(value: Value, fields: &[String]) -> Value {
+    match value {
+        Value::Object(map) => Value::Object(
+            map.into_iter()
+                .filter(|(k, _)| fields.contains(k))
+                .map(|(k, v)| (k, filter_fields(v, fields)))
+                .collect(),
+        ),
+        Value::Array(arr) => Value::Array(arr.into_iter().map(|v| filter_fields(v, fields)).collect()),
+        other => other,
+    }
+}
+
+fn convert_timestamps(value: Value) -> Value {
+    match value {
+        Value::Object(map) => Value::Object(
+            map.into_iter()
+                .map(|(k, v)| {
+                    if matches!(k.as_str(), "created" | "modified" | "accessed") {
+                        match v {
+                            Value::Number(ref n) => {
+                                if let Some(secs) = n.as_i64() {
+                                    if secs > 0 {
+                                        if let Some(dt) = DateTime::from_timestamp(secs, 0) {
+                                            return (k, Value::String(dt.to_rfc3339()));
+                                        }
+                                    }
+                                }
+                                (k, v)
+                            }
+                            _ => (k, v),
+                        }
+                    } else {
+                        (k, convert_timestamps(v))
+                    }
+                })
+                .collect(),
+        ),
+        Value::Array(arr) => Value::Array(arr.into_iter().map(convert_timestamps).collect()),
+        other => other,
+    }
+}
+
+fn summarize_array(items: &[Value]) -> Value {
+    let count = items.len();
+    let total_size: u64 = items
+        .iter()
+        .filter_map(|item| {
+            item.get("size")
+                .or_else(|| item.get("totalSize"))
+                .and_then(|v| v.as_u64())
+        })
+        .sum();
+    let total_allocated: u64 = items
+        .iter()
+        .filter_map(|item| {
+            item.get("allocated")
+                .or_else(|| item.get("totalAllocated"))
+                .and_then(|v| v.as_u64())
+        })
+        .sum();
+
+    json!({
+        "count": count,
+        "totalSize": total_size,
+        "totalAllocated": total_allocated,
+    })
+}
+
+fn trim_treemap_depth(value: &Value, max_depth: u32) -> Value {
+    fn go(value: &Value, max_depth: u32, depth: u32) -> Value {
+        match value {
+            Value::Object(map) => {
+                let mut new_map = map.clone();
+                if depth >= max_depth {
+                    new_map.remove("children");
+                } else if let Some(children) = new_map.get("children") {
+                    if let Value::Array(arr) = children {
+                        let trimmed: Vec<Value> =
+                            arr.iter().map(|c| go(c, max_depth, depth + 1)).collect();
+                        new_map.insert("children".to_string(), Value::Array(trimmed));
+                    }
+                }
+                Value::Object(new_map)
+            }
+            other => other.clone(),
+        }
+    }
+    go(value, max_depth, 0)
+}
+
+fn strip_treemap_verbose(value: &Value) -> Value {
+    match value {
+        Value::Object(map) => {
+            let mut new_map = map.clone();
+            new_map.remove("extension");
+            new_map.remove("isDir");
+            if let Some(children) = new_map.get("children") {
+                if let Value::Array(arr) = children {
+                    new_map.insert(
+                        "children".to_string(),
+                        Value::Array(arr.iter().map(strip_treemap_verbose).collect()),
+                    );
+                }
+            }
+            Value::Object(new_map)
+        }
+        other => other.clone(),
     }
 }
 

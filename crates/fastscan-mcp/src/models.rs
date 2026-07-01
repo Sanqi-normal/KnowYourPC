@@ -159,7 +159,11 @@ pub struct DirInfo {
 pub struct DuplicateGroup {
     pub file_name: String,
     pub size: u64,
+    pub file_count: usize,
+    pub total_size: u64,
     pub files: Vec<FileInfo>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub truncated: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize)]
