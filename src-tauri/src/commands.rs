@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::net::TcpListener;
 use std::path::PathBuf;
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 
 use crate::error::AppResult;
 use crate::models::{ChildNode, ExtensionStat, NodeDto, ScanOptions, ScanResult, SearchResult, TreemapNode, VolumeInfo};
@@ -491,14 +493,21 @@ fn get_mcp_binary() -> Result<PathBuf, String> {
             return Ok(p);
         }
 
-        // 3. bin/ subdirectory
+        // 3. binaries/ subdirectory (Tauri bundled resource path)
+        let p = exe_dir.join("binaries").join(binary_name);
+        tried.push(p.display().to_string());
+        if p.exists() {
+            return Ok(p);
+        }
+
+        // 4. bin/ subdirectory
         let p = exe_dir.join("bin").join(binary_name);
         tried.push(p.display().to_string());
         if p.exists() {
             return Ok(p);
         }
 
-        // 4-5. Workspace target/ (2 levels up from exe_dir)
+        // 5-6. Workspace target/ (2 levels up from exe_dir)
         for profile in &["release", "debug"] {
             let p = exe_dir
                 .join("..")
@@ -512,7 +521,7 @@ fn get_mcp_binary() -> Result<PathBuf, String> {
             }
         }
 
-        // 6-7. Independent crate build (3 levels up from exe_dir, for legacy non-workspace setups)
+        // 7-8. Independent crate build (3 levels up from exe_dir, for legacy non-workspace setups)
         for profile in &["release", "debug"] {
             let p = exe_dir
                 .join("..")
@@ -530,7 +539,7 @@ fn get_mcp_binary() -> Result<PathBuf, String> {
         }
     }
 
-    // 8. Search in PATH
+    // 9. Search in PATH
     if let Ok(path_var) = std::env::var("PATH") {
         for dir in std::env::split_paths(&path_var) {
             let p = dir.join(binary_name);
@@ -567,13 +576,15 @@ pub async fn start_mcp_server(
     let port = find_available_port(3721).ok_or("无法找到可用端口 (3721-3730)")?;
     let binary = get_mcp_binary()?;
 
-    let process = std::process::Command::new(&binary)
-        .arg("--http")
+    let mut cmd = std::process::Command::new(&binary);
+    cmd.arg("--http")
         .arg("--port")
         .arg(port.to_string())
         .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
+        .stderr(std::process::Stdio::piped());
+    #[cfg(windows)]
+    cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    let process = cmd.spawn()
         .map_err(|e| format!("启动 MCP server 失败: {e}"))?;
 
     // Wait briefly for health check
