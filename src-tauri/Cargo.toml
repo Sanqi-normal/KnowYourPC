@@ -1,12 +1,12 @@
 [package]
-name = "fast-disk-analyzer"
+name = "know-your-disk"
 version = "0.1.0"
 description = "WizTree-like NTFS MFT accelerated disk space analyzer"
 authors = ["you"]
 edition = "2021"
 
 [lib]
-name = "fast_disk_analyzer_lib"
+name = "know_your_disk_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

@@ -1106,24 +1106,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "fast-disk-analyzer"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "fs2",
- "memmap2",
- "rayon",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-opener",
- "thiserror 1.0.69",
- "walkdir",
- "windows-sys 0.59.0",
-]
-
-[[package]]
 name = "fastrand"
 version = "2.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2092,6 +2074,24 @@ dependencies = [
  "bitflags 2.13.0",
  "serde",
  "unicode-segmentation",
+]
+
+[[package]]
+name = "know-your-disk"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "fs2",
+ "memmap2",
+ "rayon",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-opener",
+ "thiserror 1.0.69",
+ "walkdir",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]

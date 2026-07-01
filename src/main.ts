@@ -55,6 +55,9 @@ const summarySize = qs<HTMLDivElement>("#summarySize");
 const summaryFiles = qs<HTMLDivElement>("#summaryFiles");
 const summaryDirs = qs<HTMLDivElement>("#summaryDirs");
 const summaryScanner = qs<HTMLDivElement>("#summaryScanner");
+const summaryFs = qs<HTMLDivElement>("#summaryFs");
+const summaryCluster = qs<HTMLDivElement>("#summaryCluster");
+const summaryDriveType = qs<HTMLDivElement>("#summaryDriveType");
 const selectedPath = qs<HTMLDivElement>("#selectedPath");
 const upButton = qs<HTMLButtonElement>("#upButton");
 const zoomOutBtn = qs<HTMLButtonElement>("#zoomOutBtn");
@@ -634,6 +637,9 @@ function renderProgress(progress: ProgressEvent) {
 
 function renderSummary() {
   if (!result) {
+    summaryFs.textContent = "—";
+    summaryCluster.textContent = "—";
+    summaryDriveType.textContent = "—";
     summaryAllocated.textContent = "—";
     summarySize.textContent = "—";
     summaryFiles.textContent = "—";
@@ -641,11 +647,16 @@ function renderSummary() {
     summaryScanner.textContent = "—";
     return;
   }
-  summaryAllocated.textContent = formatBytes(result.totalAllocated);
-  summarySize.textContent = formatBytes(result.totalSize);
-  summaryFiles.textContent = formatNumber(result.fileCount);
-  summaryDirs.textContent = formatNumber(result.dirCount);
-  summaryScanner.textContent = `${result.scanner} ${formatDuration(result.elapsedMs)}`;
+  const r = result;
+  const vol = volumes.find((v) => v.root === r.root);
+  summaryFs.textContent = vol?.fsName || "—";
+  summaryCluster.textContent = vol && vol.clusterSize > 0 ? formatBytes(vol.clusterSize) : "—";
+  summaryDriveType.textContent = vol?.driveType || "—";
+  summaryAllocated.textContent = formatBytes(r.totalAllocated);
+  summarySize.textContent = formatBytes(r.totalSize);
+  summaryFiles.textContent = formatNumber(r.fileCount);
+  summaryDirs.textContent = formatNumber(r.dirCount);
+  summaryScanner.textContent = `${r.scanner} ${formatDuration(r.elapsedMs)}`;
 }
 
 async function loadExtensionStats() {
@@ -873,7 +884,11 @@ async function nodePath(id: number): Promise<string> {
 
 function renderWarnings() {
   warningsEl.replaceChildren();
-  if (!result?.warnings.length) return;
+  if (!result?.warnings.length) {
+    warningsEl.classList.add("hidden");
+    return;
+  }
+  warningsEl.classList.remove("hidden");
   for (const warning of result.warnings) {
     const div = document.createElement("div");
     div.className = "warning-item";

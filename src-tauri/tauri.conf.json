@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Fast Disk Analyzer",
+  "productName": "KnowYourDisk",
   "version": "0.1.0",
-  "identifier": "com.example.fastdiskanalyzer",
+  "identifier": "com.example.knowyourdisk",
   "build": {
     "beforeDevCommand": "npm run build:mcp && npm run dev:frontend",
     "devUrl": "http://localhost:1420",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Fast Disk Analyzer",
+        "title": "KnowYourDisk",
         "width": 1320,
         "height": 840,
         "minWidth": 960,
@@ -30,7 +30,8 @@
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/icon.ico",
-      "icons/icon.icns"
+      "icons/icon.icns",
+      "icons/icon.svg"
     ],
     "resources": [
       "binaries/fastscan-mcp.exe"

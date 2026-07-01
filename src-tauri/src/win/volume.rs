@@ -216,3 +216,5 @@ fn utf16z_to_string(buf: &[u16]) -> String {
     let end = buf.iter().position(|ch| *ch == 0).unwrap_or(buf.len());
     String::from_utf16_lossy(&buf[..end])
 }
+
+
